@@ -57,9 +57,11 @@ SONG_LIST = [
 
 # --- Session State Initialization ---
 if "signups" not in st.session_state:
-    st.session_state.signups = {}  # song -> (name, timestamp)
+    st.session_state.signups = {}
 if "called_queue" not in st.session_state:
-    st.session_state.called_queue = []  # list of (song, name)
+    st.session_state.called_queue = []
+if "host_verified" not in st.session_state:
+    st.session_state.host_verified = False
 
 st.title("🎤 Gibsons Karaoke Night")
 st.markdown("One song per person. Signed-up songs are grayed out. Let's rock Ventura!")
@@ -91,20 +93,33 @@ for song in SONG_LIST:
     else:
         st.markdown(f"- {song}")
 
-# --- Call Next Singer ---
-st.subheader("📣 Call the Next Singer")
-if st.button("Call Next Song"):
-    remaining = {
-        song: (name, time)
-        for song, (name, time) in st.session_state.signups.items()
-        if (song, name) not in st.session_state.called_queue
-    }
-    if not remaining:
-        st.info("No more singers in the queue.")
-    else:
-        next_song, (next_name, _) = sorted(remaining.items(), key=lambda x: x[1][1])[0]
-        st.session_state.called_queue.append((next_song, next_name))
-        st.success(f"🎤 {next_name}, you're up! Get ready to sing **{next_song}**.")
+# --- Host-only controls ---
+st.subheader("🔐 Host Controls")
+
+with st.expander("Enter Host PIN to Access Singer Queue", expanded=False):
+    pin_input = st.text_input("Enter host PIN", type="password")
+    if st.button("Unlock Controls"):
+        if pin_input == "gibsons2025":  # 🔒 Set your own PIN here
+            st.session_state.host_verified = True
+            st.success("Host controls unlocked!")
+        else:
+            st.error("Incorrect PIN.")
+
+# --- Call Next Singer (host only) ---
+if st.session_state.host_verified:
+    st.subheader("📣 Call the Next Singer")
+    if st.button("Call Next Song"):
+        remaining = {
+            song: (name, time)
+            for song, (name, time) in st.session_state.signups.items()
+            if (song, name) not in st.session_state.called_queue
+        }
+        if not remaining:
+            st.info("No more singers in the queue.")
+        else:
+            next_song, (next_name, _) = sorted(remaining.items(), key=lambda x: x[1][1])[0]
+            st.session_state.called_queue.append((next_song, next_name))
+            st.success(f"🎤 {next_name}, you're up! Get ready to sing **{next_song}**.")
 
 # --- Called List ---
 if st.session_state.called_queue:
