@@ -7,7 +7,7 @@ import os
 import json
 
 # --- Google Sheets setup ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1JGAubxB_3rUvTdi7XlhHOguWyvuw_37igxRNBz_KDm8/edit"
+SHEET_URL = "https://docs.google.com/spreadsheets/d/1JGAubxB_3rUvTdi7XlhHOguWyvuw_37igxRNBz_KDm8"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 if "GOOGLE_CREDENTIALS" in st.secrets:
