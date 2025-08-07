@@ -3,7 +3,6 @@ from datetime import datetime
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import os
 import json
 
 # --- Google Sheets setup ---
@@ -14,19 +13,19 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
+# Load credentials from secrets (Streamlit Cloud) or local file
 if "GOOGLE_CREDENTIALS" in st.secrets:
-    # Running on Streamlit Cloud
     CREDS = Credentials.from_service_account_info(
         json.loads(st.secrets["GOOGLE_CREDENTIALS"]),
         scopes=SCOPES
     )
 else:
-    # Running locally
     CREDS = Credentials.from_service_account_file(
         "service_account.json",
         scopes=SCOPES
     )
 
+# Connect to Google Sheet
 client = gspread.authorize(CREDS)
 
 try:
@@ -43,12 +42,13 @@ except Exception as e:
     st.error(f"❌ Could not read from worksheet: {e}")
     st.stop()
 
-# --- Streamlit state ---
+# --- Streamlit session state ---
 if "host_verified" not in st.session_state:
     st.session_state.host_verified = False
 if "called" not in st.session_state:
     st.session_state.called = []
 
+# --- App Title ---
 st.title("🎤 Gibsons Karaoke Night")
 st.markdown("One song per person. Signed-up songs are hidden once taken. Let's rock Ventura!")
 
@@ -117,7 +117,7 @@ with st.form("signup_form"):
         else:
             now = datetime.now().isoformat()
             worksheet.append_row([now, name, instagram.strip(), selected_song])
-            st.success(f"You're locked in for '{selected_song}'!")
+            st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
 
 # --- Display Song List ---
 st.subheader("🎶 Song List")
@@ -131,16 +131,16 @@ for song in SONG_LIST:
     else:
         st.markdown(f"- {song}")
 
-# --- Host Controls ---
+# --- Host Login ---
 st.subheader("🔐 Host Controls")
 with st.expander("Enter Host PIN to unlock controls"):
     pin = st.text_input("Enter host PIN", type="password")
     if st.button("Unlock"):
         if pin == "gibsons2025":
             st.session_state.host_verified = True
-            st.success("Host access granted.")
+            st.success("✅ Host access granted.")
         else:
-            st.error("Incorrect PIN.")
+            st.error("❌ Incorrect PIN.")
 
 # --- Call Next Singer ---
 if st.session_state.host_verified:
@@ -152,9 +152,9 @@ if st.session_state.host_verified:
         if not remaining.empty:
             next_row = remaining.iloc[0]
             st.session_state.called.append(next_row["song"])
-            st.success(f"{next_row['name']} — time to sing: **{next_row['song']}**!")
+            st.success(f"🎤 {next_row['name']} — time to sing **{next_row['song']}**!")
         else:
-            st.info("No more singers in the queue.")
+            st.info("✅ No more singers in the queue.")
 
 # --- View All Signups ---
 if st.session_state.host_verified:
@@ -163,11 +163,11 @@ if st.session_state.host_verified:
             tag = f" (@{row['instagram']})" if row['instagram'] else ""
             st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
 
-# --- Reset Button ---
+# --- Reset for Next Event ---
 if st.session_state.host_verified:
     st.subheader("🧹 Reset for Next Event")
     if st.button("Clear All Signups"):
         worksheet.clear()
         worksheet.append_row(["timestamp", "name", "instagram", "song"])
         st.session_state.called = []
-        st.success("All signups and queue cleared.")
+        st.success("✅ All signups and queue cleared.")
