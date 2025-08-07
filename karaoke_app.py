@@ -8,7 +8,7 @@ import json
 
 # --- Google Sheets setup ---
 SHEET_KEY = "1JGAubxB_3rUvTdi7XlhHOguWyvuw_37igxRNBz_KDm8"
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
 
 if "GOOGLE_CREDENTIALS" in st.secrets:
     # Streamlit Cloud
