@@ -8,16 +8,20 @@ import json
 
 # --- Google Sheets setup ---
 SHEET_KEY = "1JGAubxB_3rUvTdi7XlhHOguWyvuw_37igxRNBz_KDm8"
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets","https://www.googleapis.com/auth/drive"]
+
+SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
 if "GOOGLE_CREDENTIALS" in st.secrets:
-    # Streamlit Cloud
+    # Running on Streamlit Cloud
     CREDS = Credentials.from_service_account_info(
         json.loads(st.secrets["GOOGLE_CREDENTIALS"]),
         scopes=SCOPES
     )
 else:
-    # Local development
+    # Running locally
     CREDS = Credentials.from_service_account_file(
         "service_account.json",
         scopes=SCOPES
@@ -32,7 +36,6 @@ except Exception as e:
     st.error(f"❌ Could not open Google Sheet: {e}")
     st.stop()
 
-# --- Load data ---
 try:
     data = worksheet.get_all_records()
     df = pd.DataFrame(data)
@@ -40,7 +43,7 @@ except Exception as e:
     st.error(f"❌ Could not read from worksheet: {e}")
     st.stop()
 
-# --- Initialize state ---
+# --- Streamlit state ---
 if "host_verified" not in st.session_state:
     st.session_state.host_verified = False
 if "called" not in st.session_state:
@@ -116,7 +119,7 @@ with st.form("signup_form"):
             worksheet.append_row([now, name, instagram.strip(), selected_song])
             st.success(f"You're locked in for '{selected_song}'!")
 
-# --- Song List Display ---
+# --- Display Song List ---
 st.subheader("🎶 Song List")
 for song in SONG_LIST:
     if song in df["song"].tolist():
@@ -160,7 +163,7 @@ if st.session_state.host_verified:
             tag = f" (@{row['instagram']})" if row['instagram'] else ""
             st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
 
-# --- Reset for Next Event ---
+# --- Reset Button ---
 if st.session_state.host_verified:
     st.subheader("🧹 Reset for Next Event")
     if st.button("Clear All Signups"):
