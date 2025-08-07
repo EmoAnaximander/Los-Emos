@@ -47,7 +47,7 @@ if "host_verified" not in st.session_state:
 if "called" not in st.session_state:
     st.session_state.called = []
 
-st.title("🎤 Gibsons Karaoke Night")
+st.title("🎤 Los Emos Karaoke Signup")
 st.markdown("One song per person. Signed-up songs are hidden once taken. Let's rock Ventura!")
 
 # --- Song List ---
