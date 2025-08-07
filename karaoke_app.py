@@ -13,7 +13,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Load credentials from secrets (Streamlit Cloud) or local file
+# Load credentials
 if "GOOGLE_CREDENTIALS" in st.secrets:
     CREDS = Credentials.from_service_account_info(
         json.loads(st.secrets["GOOGLE_CREDENTIALS"]),
@@ -25,9 +25,8 @@ else:
         scopes=SCOPES
     )
 
-# Connect to Google Sheet
+# Connect to sheet
 client = gspread.authorize(CREDS)
-
 try:
     sheet = client.open_by_key(SHEET_KEY)
     worksheet = sheet.worksheet("Signups")
@@ -42,13 +41,12 @@ except Exception as e:
     st.error(f"❌ Could not read from worksheet: {e}")
     st.stop()
 
-# --- Streamlit session state ---
+# --- App State ---
 if "host_verified" not in st.session_state:
     st.session_state.host_verified = False
 if "called" not in st.session_state:
     st.session_state.called = []
 
-# --- App Title ---
 st.title("🎤 Gibsons Karaoke Night")
 st.markdown("One song per person. Signed-up songs are hidden once taken. Let's rock Ventura!")
 
@@ -131,7 +129,7 @@ for song in SONG_LIST:
     else:
         st.markdown(f"- {song}")
 
-# --- Host Login ---
+# --- Host Controls ---
 st.subheader("🔐 Host Controls")
 with st.expander("Enter Host PIN to unlock controls"):
     pin = st.text_input("Enter host PIN", type="password")
@@ -163,7 +161,7 @@ if st.session_state.host_verified:
             tag = f" (@{row['instagram']})" if row['instagram'] else ""
             st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
 
-# --- Reset for Next Event ---
+# --- Reset Button ---
 if st.session_state.host_verified:
     st.subheader("🧹 Reset for Next Event")
     if st.button("Clear All Signups"):
