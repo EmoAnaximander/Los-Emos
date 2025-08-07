@@ -1,7 +1,7 @@
 import streamlit as st
 from datetime import datetime
 
-# --- Real Song List from Jenn's spreadsheet ---
+# --- SONG LIST FROM FILE ---
 SONG_LIST = [
     "Mayday Parade - Jamie All Over",
     "Sugarcult - Memory",
@@ -55,7 +55,7 @@ SONG_LIST = [
     "Fountains of Wayne - Stacy's Mom"
 ]
 
-# --- Session State Initialization ---
+# --- SESSION STATE ---
 if "signups" not in st.session_state:
     st.session_state.signups = {}
 if "called_queue" not in st.session_state:
@@ -66,7 +66,7 @@ if "host_verified" not in st.session_state:
 st.title("🎤 Gibsons Karaoke Night")
 st.markdown("One song per person. Signed-up songs are grayed out. Let's rock Ventura!")
 
-# --- Signup Form ---
+# --- SIGNUP FORM ---
 with st.form("signup_form"):
     name = st.text_input("Your name")
     instagram = st.text_input("Your Instagram (optional, no @ needed)")
@@ -74,70 +74,68 @@ with st.form("signup_form"):
     selected_song = st.selectbox("Pick your song", available_songs)
     submit = st.form_submit_button("Sign me up!")
 
-
     if submit:
         if not name.strip():
             st.warning("Please enter your name.")
         elif selected_song in st.session_state.signups:
             st.error("That song is already taken.")
-        elif any(name == n for (_, (n, _)) in st.session_state.signups.items()):
+        elif any(name == info["name"] for info in st.session_state.signups.values()):
             st.error("You've already signed up for a song.")
         else:
-                     st.session_state.signups[selected_song] = {
+            st.session_state.signups[selected_song] = {
                 "name": name,
                 "timestamp": datetime.now(),
                 "instagram": instagram.strip() if instagram else ""
             }
-
             st.success(f"{name}, you're locked in for '{selected_song}'!")
 
-# --- Song List Display ---
+# --- SONG LIST ---
 st.subheader("🎶 Song List")
 for song in SONG_LIST:
     if song in st.session_state.signups:
-        signer = st.session_state.signups[song][0]
+        signer = st.session_state.signups[song]["name"]
         st.markdown(f"- ~~{song}~~ (🎤 {signer})")
     else:
         st.markdown(f"- {song}")
 
-# --- Host-only controls ---
+# --- HOST PIN ENTRY ---
 st.subheader("🔐 Host Controls")
 
 with st.expander("Enter Host PIN to Access Singer Queue", expanded=False):
     pin_input = st.text_input("Enter host PIN", type="password")
     if st.button("Unlock Controls"):
-        if pin_input == "gibsons2025":  # 🔒 Set your own PIN here
+        if pin_input == "gibsons2025":  # <-- You can change this
             st.session_state.host_verified = True
             st.success("Host controls unlocked!")
         else:
             st.error("Incorrect PIN.")
 
-# --- Call Next Singer (host only) ---
+# --- CALL NEXT SINGER ---
 if st.session_state.host_verified:
     st.subheader("📣 Call the Next Singer")
     if st.button("Call Next Song"):
         remaining = {
-            song: (name, time)
-            for song, (name, time) in st.session_state.signups.items()
-            if (song, name) not in st.session_state.called_queue
+            song: info
+            for song, info in st.session_state.signups.items()
+            if (song, info["name"]) not in st.session_state.called_queue
         }
         if not remaining:
             st.info("No more singers in the queue.")
         else:
-            next_song, (next_name, _) = sorted(remaining.items(), key=lambda x: x[1][1])[0]
-            st.session_state.called_queue.append((next_song, next_name))
-            st.success(f"🎤 {next_name}, you're up! Get ready to sing **{next_song}**.")
+            # Sort by earliest signup
+            next_song, info = sorted(remaining.items(), key=lambda x: x[1]["timestamp"])[0]
+            st.session_state.called_queue.append((next_song, info["name"]))
+            st.success(f"🎤 {info['name']}, you're up! Get ready to sing **{next_song}**.")
 
-# --- Called List ---
+# --- DISPLAY CALLED LIST ---
 if st.session_state.called_queue:
     st.subheader("✅ Already Called")
     for song, name in st.session_state.called_queue:
-        insta = st.session_state.signups[song].get("instagram", "")
-        tag_text = f" (@{insta})" if insta else ""
-        st.markdown(f"- {name}{tag_text}: {song}")
+        info = st.session_state.signups[song]
+        tag = f" (@{info['instagram']})" if info['instagram'] else ""
+        st.markdown(f"- {name}{tag}: {song}")
 
-        st.markdown(f"- {name}: {song}")
-# --- Show all signups (host only) ---
+# --- FINAL SIGNUP LIST (HOST ONLY) ---
 if st.session_state.host_verified:
     with st.expander("📋 View All Signups"):
         if st.button("Show Signups"):
@@ -146,7 +144,5 @@ if st.session_state.host_verified:
             else:
                 st.write("### Final Signup List")
                 for song, info in sorted(st.session_state.signups.items(), key=lambda x: x[1]["timestamp"]):
-                    insta = info.get("instagram", "")
-                    tag = f" (@{insta})" if insta else ""
+                    tag = f" (@{info['instagram']})" if info['instagram'] else ""
                     st.markdown(f"- **{info['name']}**{tag} – _{song}_")
-
