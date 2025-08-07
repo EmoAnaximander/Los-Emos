@@ -55,7 +55,7 @@ if "called_queue" not in st.session_state:
 if "host_verified" not in st.session_state:
     st.session_state.host_verified = False
 
-st.title("🎤 Gibsons Karaoke Night")
+st.title("🎤 Los Emos Karaoke Sign-Up Sheet")
 st.markdown("One song per person. Signed-up songs are grayed out. Let's rock Ventura!")
 
 # --- SIGNUP FORM ---
