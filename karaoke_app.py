@@ -7,32 +7,42 @@ import os
 import json
 
 # --- Google Sheets setup ---
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1JGAubxB_3rUvTdi7XlhHOguWyvuw_37igxRNBz_KDm8/edit"
+SHEET_KEY = "1JGAubxB_3rUvTdi7XlhHOguWyvuw_37igxRNBz_KDm8"
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 if "GOOGLE_CREDENTIALS" in st.secrets:
-    # Running on Streamlit Cloud
+    # Streamlit Cloud
     CREDS = Credentials.from_service_account_info(
         json.loads(st.secrets["GOOGLE_CREDENTIALS"]),
         scopes=SCOPES
     )
 else:
-    # Running locally
+    # Local development
     CREDS = Credentials.from_service_account_file(
         "service_account.json",
         scopes=SCOPES
     )
 
 client = gspread.authorize(CREDS)
-sheet = client.open_by_url(SHEET_URL).worksheet("Signups")
+
+try:
+    sheet = client.open_by_key(SHEET_KEY)
+    worksheet = sheet.worksheet("Signups")
+except Exception as e:
+    st.error(f"❌ Could not open Google Sheet: {e}")
+    st.stop()
 
 # --- Load data ---
-data = sheet.get_all_records()
-df = pd.DataFrame(data)
+try:
+    data = worksheet.get_all_records()
+    df = pd.DataFrame(data)
+except Exception as e:
+    st.error(f"❌ Could not read from worksheet: {e}")
+    st.stop()
 
+# --- Initialize state ---
 if "host_verified" not in st.session_state:
     st.session_state.host_verified = False
-
 if "called" not in st.session_state:
     st.session_state.called = []
 
@@ -103,7 +113,7 @@ with st.form("signup_form"):
             st.error("You've already signed up for a song.")
         else:
             now = datetime.now().isoformat()
-            sheet.append_row([now, name, instagram.strip(), selected_song])
+            worksheet.append_row([now, name, instagram.strip(), selected_song])
             st.success(f"You're locked in for '{selected_song}'!")
 
 # --- Song List Display ---
@@ -154,7 +164,7 @@ if st.session_state.host_verified:
 if st.session_state.host_verified:
     st.subheader("🧹 Reset for Next Event")
     if st.button("Clear All Signups"):
-        sheet.clear()
-        sheet.append_row(["timestamp", "name", "instagram", "song"])
+        worksheet.clear()
+        worksheet.append_row(["timestamp", "name", "instagram", "song"])
         st.session_state.called = []
         st.success("All signups and queue cleared.")
