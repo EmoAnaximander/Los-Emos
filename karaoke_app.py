@@ -69,9 +69,11 @@ st.markdown("One song per person. Signed-up songs are grayed out. Let's rock Ven
 # --- Signup Form ---
 with st.form("signup_form"):
     name = st.text_input("Your name")
+    instagram = st.text_input("Your Instagram (optional, no @ needed)")
     available_songs = [s for s in SONG_LIST if s not in st.session_state.signups]
     selected_song = st.selectbox("Pick your song", available_songs)
     submit = st.form_submit_button("Sign me up!")
+
 
     if submit:
         if not name.strip():
@@ -81,7 +83,12 @@ with st.form("signup_form"):
         elif any(name == n for (_, (n, _)) in st.session_state.signups.items()):
             st.error("You've already signed up for a song.")
         else:
-            st.session_state.signups[selected_song] = (name, datetime.now())
+                     st.session_state.signups[selected_song] = {
+                "name": name,
+                "timestamp": datetime.now(),
+                "instagram": instagram.strip() if instagram else ""
+            }
+
             st.success(f"{name}, you're locked in for '{selected_song}'!")
 
 # --- Song List Display ---
@@ -125,4 +132,21 @@ if st.session_state.host_verified:
 if st.session_state.called_queue:
     st.subheader("✅ Already Called")
     for song, name in st.session_state.called_queue:
+        insta = st.session_state.signups[song].get("instagram", "")
+        tag_text = f" (@{insta})" if insta else ""
+        st.markdown(f"- {name}{tag_text}: {song}")
+
         st.markdown(f"- {name}: {song}")
+# --- Show all signups (host only) ---
+if st.session_state.host_verified:
+    with st.expander("📋 View All Signups"):
+        if st.button("Show Signups"):
+            if not st.session_state.signups:
+                st.info("No signups yet.")
+            else:
+                st.write("### Final Signup List")
+                for song, info in sorted(st.session_state.signups.items(), key=lambda x: x[1]["timestamp"]):
+                    insta = info.get("instagram", "")
+                    tag = f" (@{insta})" if insta else ""
+                    st.markdown(f"- **{info['name']}**{tag} – _{song}_")
+
