@@ -47,8 +47,9 @@ if "host_verified" not in st.session_state:
 if "called" not in st.session_state:
     st.session_state.called = []
 
+# --- Title ---
 st.title("🎤 Los Emos Karaoke Signup")
-st.markdown("One song per person. Signed-up songs are hidden once taken. Let's rock Ventura!")
+st.markdown("One song per person. Signed-up songs are hidden once taken. Let’s scream into the abyss together.")
 
 # --- Song List ---
 SONG_LIST = [
@@ -117,7 +118,7 @@ with st.form("signup_form"):
             worksheet.append_row([now, name, instagram.strip(), selected_song])
             st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
 
-# --- Display Song List ---
+# --- Song List Display ---
 st.subheader("🎶 Song List")
 for song in SONG_LIST:
     if song in df["song"].tolist():
