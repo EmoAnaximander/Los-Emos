@@ -116,7 +116,7 @@ if name and "name" in df.columns and name in df["name"].tolist():
         if st.button("Undo My Signup") and confirm_undo:
             if delete_signup_by_name(name):
                 st.success("✅ Your signup has been removed.")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error("⚠️ Could not find your signup to remove.")
 
