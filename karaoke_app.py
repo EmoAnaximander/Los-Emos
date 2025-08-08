@@ -55,8 +55,17 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Title ---
-st.title("\U0001F3A4 Los Emos Karaoke Signup")
+st.title("🎤 Los Emos Karaoke Signup")
 st.markdown("One song per person. Signed-up songs are hidden once taken. Let\'s scream into the abyss together.")
+
+# --- Helper to delete signup by name ---
+def delete_signup_by_name(name):
+    records = worksheet.get_all_values()
+    for i, row in enumerate(records):
+        if len(row) >= 2 and row[1].strip().lower() == name.strip().lower():
+            worksheet.delete_rows(i + 1)
+            return True
+    return False
 
 # --- Song List ---
 SONG_LIST = [
@@ -67,8 +76,7 @@ SONG_LIST = [
     "Good Charlotte - Girls & Boys", "Good Charlotte - The Anthem", "Hawthorne Heights - Ohio Is for Lovers",
     "Jimmy Eat World - The Middle", "Mayday Parade - Jamie All Over", "My Chemical Romance - Helena",
     "My Chemical Romance - I'm Not Okay (I Promise)", "New Found Glory - My Friends Over You",
-    "New Found Glory - Understatement",
-    "Panic! At The Disco - Lying Is the Most Fun a Girl Can Have Without Taking Her Clothes Off",
+    "New Found Glory - Understatement", "Panic! At The Disco - Lying Is the Most Fun a Girl Can Have Without Taking Her Clothes Off",
     "Papa Roach - Last Resort", "Paramore - Misery Business", "Paramore - Still Into You",
     "Paramore - That's What You Get", "Saves The Day - My Sweet Fracture", "Say Anything - Wow, I Can Get Sexual Too",
     "Simple Plan - I'd Do Anything", "Something Corporate - Punk Rock Princess",
@@ -101,6 +109,17 @@ with st.form("signup_form"):
             worksheet.append_row([now, name, instagram.strip(), selected_song])
             st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
 
+# --- Undo Signup Button ---
+if name and "name" in df.columns and name in df["name"].tolist():
+    with st.expander("⚠️ Undo My Signup"):
+        confirm_undo = st.checkbox("Yes, I want to remove my signup")
+        if st.button("Undo My Signup") and confirm_undo:
+            if delete_signup_by_name(name):
+                st.success("✅ Your signup has been removed.")
+                st.experimental_rerun()
+            else:
+                st.error("⚠️ Could not find your signup to remove.")
+
 # --- Now Singing Display ---
 if st.session_state.called:
     current_song = st.session_state.called[-1]
@@ -119,7 +138,7 @@ for song in SONG_LIST:
     else:
         st.markdown(f"- {song}")
 
-# --- Host Login ---
+# --- Host Controls ---
 st.subheader("🔐 Host Controls")
 with st.expander("Enter Host PIN to unlock controls"):
     pin = st.text_input("Enter host PIN", type="password")
@@ -130,41 +149,45 @@ with st.expander("Enter Host PIN to unlock controls"):
         else:
             st.error("❌ Incorrect PIN.")
 
-# --- Call Next Singer + Queue Preview ---
-if st.session_state.host_verified:
-    st.subheader("📣 Call Next Singer")
-    if "song" in df.columns:
-        queue = df.sort_values("timestamp")
-        remaining = queue[~queue["song"].isin(st.session_state.called)]
-        next_three = remaining.head(3)
+# --- Release Song for Host ---
+if st.session_state.host_verified and "song" in df.columns:
+    st.subheader("🎭 Release a Song (If Someone Left)")
+    taken = df["song"].tolist()
+    song_to_free = st.selectbox("Select a song to free up", taken, key="free_song")
+    with st.expander("⚠️ Confirm Song Removal"):
+        confirm_release = st.checkbox("Yes, remove this signup from the sheet")
+        if st.button("Remove Selected Signup") and confirm_release:
+            match_row = df[df["song"] == song_to_free]
+            if not match_row.empty:
+                name_to_delete = match_row.iloc[0]["name"]
+                if delete_signup_by_name(name_to_delete):
+                    st.success(f"✅ Removed '{song_to_free}' from the queue.")
+                    st.experimental_rerun()
+                else:
+                    st.error("⚠️ Could not remove signup.")
 
-        st.markdown("### 🧾 Next 3 In Queue")
-        for _, row in next_three.iterrows():
-            st.markdown(f"- **{row['name']}** → _{row['song']}_")
+# --- Queue Viewer ---
+if st.session_state.host_verified and "song" in df.columns:
+    st.subheader("🧾 Next 3 In Queue")
+    queue = df.sort_values("timestamp")
+    remaining = queue[~queue["song"].isin(st.session_state.called)]
+    for _, row in remaining.head(3).iterrows():
+        st.markdown(f"- **{row['name']}** → _{row['song']}_")
 
-        if st.button("Call Next Song"):
-            if not remaining.empty:
-                next_row = remaining.iloc[0]
-                st.session_state.called.append(next_row["song"])
-                st.success(f"🎤 {next_row['name']} — time to sing **{next_row['song']}**!")
-            else:
-                st.info("✅ No more singers in the queue.")
-    else:
-        st.warning("🛑 Cannot run queue: no 'song' column present.")
-
-# --- View All Signups ---
-if st.session_state.host_verified and not df.empty:
-    with st.expander("📋 View All Signups"):
-        for _, row in df.iterrows():
-            tag = f" (@{row['instagram']})" if row['instagram'] else ""
-            st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
+    if st.button("Call Next Song"):
+        if not remaining.empty:
+            next_row = remaining.iloc[0]
+            st.session_state.called.append(next_row["song"])
+            st.success(f"🎤 {next_row['name']} — time to sing **{next_row['song']}**!")
+        else:
+            st.info("✅ No more singers in the queue.")
 
 # --- Export to CSV ---
 if st.session_state.host_verified and not df.empty:
-    csv = df.to_csv(index=False).encode('utf-8')
+    csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("📥 Download Signups as CSV", csv, "signups.csv", "text/csv")
 
-# --- Reset Button ---
+# --- Reset for Next Event ---
 if st.session_state.host_verified:
     st.subheader("🧹 Reset for Next Event")
     if st.button("Clear All Signups"):
@@ -172,4 +195,3 @@ if st.session_state.host_verified:
         worksheet.append_row(["timestamp", "name", "instagram", "song"])
         st.session_state.called = []
         st.success("✅ All signups and queue cleared.")
-""
