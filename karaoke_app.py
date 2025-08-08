@@ -32,7 +32,7 @@ except Exception as e:
     st.error(f"❌ Could not open Google Sheet: {e}")
     st.stop()
 
-# --- Read data with fallback if sheet is empty ---
+# --- Read data safely ---
 try:
     data = worksheet.get_all_records()
     if data:
@@ -45,7 +45,7 @@ except Exception as e:
     st.error(f"❌ Could not read from worksheet: {e}")
     st.stop()
 
-# --- Streamlit state ---
+# --- State ---
 if "host_verified" not in st.session_state:
     st.session_state.host_verified = False
 if "called" not in st.session_state:
@@ -122,8 +122,57 @@ with st.form("signup_form"):
             worksheet.append_row([now, name, instagram.strip(), selected_song])
             st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
 
-# --- Display Song List ---
+# --- Song List Display ---
 st.subheader("🎶 Song List")
 for song in SONG_LIST:
     if "song" in df.columns and song in df["song"].tolist():
-        if st.session_state.host_veri
+        if st.session_state.host_verified:
+            person = df[df["song"] == song]["name"].values[0]
+            st.markdown(f"- ~~{song}~~ (🎤 {person})")
+        else:
+            st.markdown(f"- ~~{song}~~")
+    else:
+        st.markdown(f"- {song}")
+
+# --- Host Controls ---
+st.subheader("🔐 Host Controls")
+with st.expander("Enter Host PIN to unlock controls"):
+    pin = st.text_input("Enter host PIN", type="password")
+    if st.button("Unlock"):
+        if pin == "gibsons2025":
+            st.session_state.host_verified = True
+            st.success("✅ Host access granted.")
+        else:
+            st.error("❌ Incorrect PIN.")
+
+# --- Call Next Singer ---
+if st.session_state.host_verified:
+    st.subheader("📣 Call Next Singer")
+    if "song" in df.columns:
+        queue = df.sort_values("timestamp")
+        remaining = queue[~queue["song"].isin(st.session_state.called)]
+        if st.button("Call Next Song"):
+            if not remaining.empty:
+                next_row = remaining.iloc[0]
+                st.session_state.called.append(next_row["song"])
+                st.success(f"🎤 {next_row['name']} — time to sing **{next_row['song']}**!")
+            else:
+                st.info("✅ No more singers in the queue.")
+    else:
+        st.warning("🛑 Cannot call queue: no 'song' column found yet.")
+
+# --- View All Signups ---
+if st.session_state.host_verified and not df.empty:
+    with st.expander("📋 View All Signups"):
+        for _, row in df.iterrows():
+            tag = f" (@{row['instagram']})" if row['instagram'] else ""
+            st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
+
+# --- Reset for Next Event ---
+if st.session_state.host_verified:
+    st.subheader("🧹 Reset for Next Event")
+    if st.button("Clear All Signups"):
+        worksheet.clear()
+        worksheet.append_row(["timestamp", "name", "instagram", "song"])
+        st.session_state.called = []
+        st.success("✅ All signups and queue cleared.")
