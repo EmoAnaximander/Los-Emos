@@ -13,7 +13,6 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-# Load credentials
 if "GOOGLE_CREDENTIALS" in st.secrets:
     CREDS = Credentials.from_service_account_info(
         json.loads(st.secrets["GOOGLE_CREDENTIALS"]),
@@ -25,7 +24,6 @@ else:
         scopes=SCOPES
     )
 
-# Connect to sheet
 client = gspread.authorize(CREDS)
 try:
     sheet = client.open_by_key(SHEET_KEY)
@@ -34,14 +32,20 @@ except Exception as e:
     st.error(f"❌ Could not open Google Sheet: {e}")
     st.stop()
 
+# --- Read data with fallback if sheet is empty ---
 try:
     data = worksheet.get_all_records()
-    df = pd.DataFrame(data)
+    if data:
+        df = pd.DataFrame(data)
+    else:
+        header = worksheet.row_values(1)
+        df = pd.DataFrame(columns=[col.strip().lower() for col in header])
+    df.columns = [col.strip().lower() for col in df.columns]
 except Exception as e:
     st.error(f"❌ Could not read from worksheet: {e}")
     st.stop()
 
-# --- App State ---
+# --- Streamlit state ---
 if "host_verified" not in st.session_state:
     st.session_state.host_verified = False
 if "called" not in st.session_state:
@@ -101,7 +105,7 @@ SONG_LIST = [
 with st.form("signup_form"):
     name = st.text_input("Your name")
     instagram = st.text_input("Your Instagram (optional, no @ needed)")
-    taken_songs = df["song"].tolist()
+    taken_songs = df["song"].tolist() if "song" in df.columns else []
     available_songs = [s for s in SONG_LIST if s not in taken_songs]
     selected_song = st.selectbox("Pick your song", available_songs)
     submit = st.form_submit_button("Sign me up!")
@@ -111,62 +115,15 @@ with st.form("signup_form"):
             st.warning("Please enter your name.")
         elif selected_song in taken_songs:
             st.error("That song is already taken.")
-        elif name in df["name"].tolist():
+        elif "name" in df.columns and name in df["name"].tolist():
             st.error("You've already signed up for a song.")
         else:
             now = datetime.now().isoformat()
             worksheet.append_row([now, name, instagram.strip(), selected_song])
             st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
 
-# --- Song List Display ---
+# --- Display Song List ---
 st.subheader("🎶 Song List")
 for song in SONG_LIST:
-    if song in df["song"].tolist():
-        if st.session_state.host_verified:
-            person = df[df["song"] == song]["name"].values[0]
-            st.markdown(f"- ~~{song}~~ (🎤 {person})")
-        else:
-            st.markdown(f"- ~~{song}~~")
-    else:
-        st.markdown(f"- {song}")
-
-# --- Host Controls ---
-st.subheader("🔐 Host Controls")
-with st.expander("Enter Host PIN to unlock controls"):
-    pin = st.text_input("Enter host PIN", type="password")
-    if st.button("Unlock"):
-        if pin == "gibsons2025":
-            st.session_state.host_verified = True
-            st.success("✅ Host access granted.")
-        else:
-            st.error("❌ Incorrect PIN.")
-
-# --- Call Next Singer ---
-if st.session_state.host_verified:
-    st.subheader("📣 Call Next Singer")
-    queue = df.sort_values("timestamp")
-    remaining = queue[~queue["song"].isin(st.session_state.called)]
-
-    if st.button("Call Next Song"):
-        if not remaining.empty:
-            next_row = remaining.iloc[0]
-            st.session_state.called.append(next_row["song"])
-            st.success(f"🎤 {next_row['name']} — time to sing **{next_row['song']}**!")
-        else:
-            st.info("✅ No more singers in the queue.")
-
-# --- View All Signups ---
-if st.session_state.host_verified:
-    with st.expander("📋 View All Signups"):
-        for _, row in df.iterrows():
-            tag = f" (@{row['instagram']})" if row['instagram'] else ""
-            st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
-
-# --- Reset Button ---
-if st.session_state.host_verified:
-    st.subheader("🧹 Reset for Next Event")
-    if st.button("Clear All Signups"):
-        worksheet.clear()
-        worksheet.append_row(["timestamp", "name", "instagram", "song"])
-        st.session_state.called = []
-        st.success("✅ All signups and queue cleared.")
+    if "song" in df.columns and song in df["song"].tolist():
+        if st.session_state.host_veri
