@@ -4,6 +4,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 import json
+import io
 
 # --- Google Sheets setup ---
 SHEET_KEY = "1JGAubxB_3rUvTdi7XlhHOguWyvuw_37igxRNBz_KDm8"
@@ -25,79 +26,57 @@ else:
     )
 
 client = gspread.authorize(CREDS)
-try:
-    sheet = client.open_by_key(SHEET_KEY)
-    worksheet = sheet.worksheet("Signups")
-except Exception as e:
-    st.error(f"❌ Could not open Google Sheet: {e}")
-    st.stop()
+sheet = client.open_by_key(SHEET_KEY)
+worksheet = sheet.worksheet("Signups")
 
-# --- Read data safely ---
-try:
-    data = worksheet.get_all_records()
-    if data:
-        df = pd.DataFrame(data)
-    else:
-        header = worksheet.row_values(1)
-        df = pd.DataFrame(columns=[col.strip().lower() for col in header])
-    df.columns = [col.strip().lower() for col in df.columns]
-except Exception as e:
-    st.error(f"❌ Could not read from worksheet: {e}")
-    st.stop()
+# --- Load data safely ---
+data = worksheet.get_all_records()
+if data:
+    df = pd.DataFrame(data)
+else:
+    header = worksheet.row_values(1)
+    df = pd.DataFrame(columns=[col.strip().lower() for col in header])
+df.columns = [col.strip().lower() for col in df.columns]
 
-# --- State ---
 if "host_verified" not in st.session_state:
     st.session_state.host_verified = False
 if "called" not in st.session_state:
     st.session_state.called = []
 
+# --- Styling (Dark mode) ---
+st.markdown("""
+    <style>
+    body, .main, .block-container { background-color: #1e1e1e; color: white; }
+    .stTextInput > div > input, .stSelectbox > div > div, .stButton > button {
+        background-color: #333;
+        color: white;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- Title ---
-st.title("🎤 Los Emos Karaoke Signup")
-st.markdown("One song per person. Signed-up songs are hidden once taken. Let’s scream into the abyss together.")
+st.title("\U0001F3A4 Los Emos Karaoke Signup")
+st.markdown("One song per person. Signed-up songs are hidden once taken. Let\'s scream into the abyss together.")
 
 # --- Song List ---
 SONG_LIST = [
-    "Alkaline Trio - Stupid Kid",
-    "All Time Low - Dear Maria, Count Me In",
-    "Avril Lavigne - Sk8er Boi",
-    "Blink-182 - All the Small Things",
-    "Blink-182 - What's My Age Again?",
-    "Bowling for Soup - 1985",
-    "Brand New - Mix Tape",
-    "Brand New - The Quiet Things That No One Ever Knows",
-    "Dashboard Confessional - Vindicated",
-    "Fall Out Boy - Dance Dance",
-    "Fall Out Boy - Sugar, We're Goin Down",
-    "Good Charlotte - Girls & Boys",
-    "Good Charlotte - The Anthem",
-    "Hawthorne Heights - Ohio Is for Lovers",
-    "Jimmy Eat World - The Middle",
-    "Mayday Parade - Jamie All Over",
-    "My Chemical Romance - Helena",
-    "My Chemical Romance - I'm Not Okay (I Promise)",
-    "New Found Glory - My Friends Over You",
+    "Alkaline Trio - Stupid Kid", "All Time Low - Dear Maria, Count Me In", "Avril Lavigne - Sk8er Boi",
+    "Blink-182 - All the Small Things", "Blink-182 - What's My Age Again?", "Bowling for Soup - 1985",
+    "Brand New - Mix Tape", "Brand New - The Quiet Things That No One Ever Knows",
+    "Dashboard Confessional - Vindicated", "Fall Out Boy - Dance Dance", "Fall Out Boy - Sugar, We're Goin Down",
+    "Good Charlotte - Girls & Boys", "Good Charlotte - The Anthem", "Hawthorne Heights - Ohio Is for Lovers",
+    "Jimmy Eat World - The Middle", "Mayday Parade - Jamie All Over", "My Chemical Romance - Helena",
+    "My Chemical Romance - I'm Not Okay (I Promise)", "New Found Glory - My Friends Over You",
     "New Found Glory - Understatement",
     "Panic! At The Disco - Lying Is the Most Fun a Girl Can Have Without Taking Her Clothes Off",
-    "Papa Roach - Last Resort",
-    "Paramore - Misery Business",
-    "Paramore - Still Into You",
-    "Paramore - That's What You Get",
-    "Saves The Day - My Sweet Fracture",
-    "Say Anything - Wow, I Can Get Sexual Too",
-    "Simple Plan - I'd Do Anything",
-    "Something Corporate - Punk Rock Princess",
-    "Story of the Year - Until the Day I Die",
-    "Sugarcult - Memory",
-    "Taking Back Sunday - Cute Without the 'E' (Cut From the Team)",
-    "Taking Back Sunday - MakeDamnSure",
-    "The All-American Rejects - Dirty Little Secret",
-    "The Starting Line - The Best of Me",
-    "The Story So Far - Empty Space",
-    "The Story So Far - Roam",
-    "The Used - Buried Myself Alive",
-    "The Used - The Taste of Ink",
-    "Wheatus - Teenage Dirtbag",
-    "Yellowcard - Ocean Avenue",
+    "Papa Roach - Last Resort", "Paramore - Misery Business", "Paramore - Still Into You",
+    "Paramore - That's What You Get", "Saves The Day - My Sweet Fracture", "Say Anything - Wow, I Can Get Sexual Too",
+    "Simple Plan - I'd Do Anything", "Something Corporate - Punk Rock Princess",
+    "Story of the Year - Until the Day I Die", "Sugarcult - Memory",
+    "Taking Back Sunday - Cute Without the 'E' (Cut From the Team)", "Taking Back Sunday - MakeDamnSure",
+    "The All-American Rejects - Dirty Little Secret", "The Starting Line - The Best of Me",
+    "The Story So Far - Empty Space", "The Story So Far - Roam", "The Used - Buried Myself Alive",
+    "The Used - The Taste of Ink", "Wheatus - Teenage Dirtbag", "Yellowcard - Ocean Avenue",
     "Yellowcard - Only One"
 ]
 
@@ -122,7 +101,13 @@ with st.form("signup_form"):
             worksheet.append_row([now, name, instagram.strip(), selected_song])
             st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
 
-# --- Song List Display ---
+# --- Now Singing Display ---
+if st.session_state.called:
+    current_song = st.session_state.called[-1]
+    row = df[df["song"] == current_song].iloc[0]
+    st.markdown(f"## 🎤 NOW SINGING: **{row['name']}** – _{current_song}_")
+
+# --- Song List ---
 st.subheader("🎶 Song List")
 for song in SONG_LIST:
     if "song" in df.columns and song in df["song"].tolist():
@@ -134,7 +119,7 @@ for song in SONG_LIST:
     else:
         st.markdown(f"- {song}")
 
-# --- Host Controls ---
+# --- Host Login ---
 st.subheader("🔐 Host Controls")
 with st.expander("Enter Host PIN to unlock controls"):
     pin = st.text_input("Enter host PIN", type="password")
@@ -145,12 +130,18 @@ with st.expander("Enter Host PIN to unlock controls"):
         else:
             st.error("❌ Incorrect PIN.")
 
-# --- Call Next Singer ---
+# --- Call Next Singer + Queue Preview ---
 if st.session_state.host_verified:
     st.subheader("📣 Call Next Singer")
     if "song" in df.columns:
         queue = df.sort_values("timestamp")
         remaining = queue[~queue["song"].isin(st.session_state.called)]
+        next_three = remaining.head(3)
+
+        st.markdown("### 🧾 Next 3 In Queue")
+        for _, row in next_three.iterrows():
+            st.markdown(f"- **{row['name']}** → _{row['song']}_")
+
         if st.button("Call Next Song"):
             if not remaining.empty:
                 next_row = remaining.iloc[0]
@@ -159,7 +150,7 @@ if st.session_state.host_verified:
             else:
                 st.info("✅ No more singers in the queue.")
     else:
-        st.warning("🛑 Cannot call queue: no 'song' column found yet.")
+        st.warning("🛑 Cannot run queue: no 'song' column present.")
 
 # --- View All Signups ---
 if st.session_state.host_verified and not df.empty:
@@ -168,7 +159,12 @@ if st.session_state.host_verified and not df.empty:
             tag = f" (@{row['instagram']})" if row['instagram'] else ""
             st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
 
-# --- Reset for Next Event ---
+# --- Export to CSV ---
+if st.session_state.host_verified and not df.empty:
+    csv = df.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Download Signups as CSV", csv, "signups.csv", "text/csv")
+
+# --- Reset Button ---
 if st.session_state.host_verified:
     st.subheader("🧹 Reset for Next Event")
     if st.button("Clear All Signups"):
@@ -176,3 +172,4 @@ if st.session_state.host_verified:
         worksheet.append_row(["timestamp", "name", "instagram", "song"])
         st.session_state.called = []
         st.success("✅ All signups and queue cleared.")
+""
