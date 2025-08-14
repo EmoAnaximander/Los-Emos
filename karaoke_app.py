@@ -162,7 +162,9 @@ with st.expander("Enter Host PIN to unlock controls"):
 if st.session_state.host_verified and "song" in df.columns:
     st.subheader("🎭 Release a Song")
     taken = df["song"].tolist()
-    song_to_free = st.selectbox("Select a song to free up", taken, key="free_song")
+    song_choices = [f"{row['name']} – {row['song']}" for _, row in df.iterrows() if row['song'] in taken]
+    song_to_free = st.selectbox("Select a signup to remove", song_choices, key="free_song")
+    song_to_free = song_to_free.split(" – ")[-1]  # extract song title
     with st.expander("⚠️ Confirm Song Removal"):
         confirm_release = st.checkbox("Yes, remove this signup from the sheet")
         if st.button("Remove Selected Signup") and confirm_release:
@@ -180,9 +182,10 @@ if st.session_state.host_verified and "song" in df.columns:
     st.subheader("⏭️ Skip a Singer")
     all_called = st.session_state.called
     queued = df[~df["song"].isin(all_called)].sort_values("timestamp")
-    skip_options = queued["name"].tolist()
+    skip_options = [f"{row['name']} – {row['song']}" for _, row in queued.iterrows()]
     if skip_options:
-        to_skip = st.selectbox("Select a singer to skip", skip_options, key="skip_singer")
+        to_skip_display = st.selectbox("Select a singer to skip", skip_options, key="skip_singer")
+        to_skip = to_skip_display.split(" – ")[0]
         if st.button("Skip Selected Singer"):
             idx = queued["name"].tolist().index(to_skip)
             if len(queued) > idx + 3:
@@ -199,7 +202,7 @@ if st.session_state.host_verified and "song" in df.columns:
     queue = df.sort_values("timestamp")
     remaining = queue[~queue["song"].isin(st.session_state.called)]
     for _, row in remaining.head(3).iterrows():
-        safe_song = row['song'].replace('*', '\*').replace('_', '\_').replace('`', '\`')
+        safe_song = row['song'].replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
         st.markdown(f"- **{row['name']}** → _{safe_song}_")
 
     if st.button("Call Next Song"):
@@ -207,7 +210,7 @@ if st.session_state.host_verified and "song" in df.columns:
             next_row = remaining.iloc[0]
             st.session_state.called.append(next_row["song"])
             name = next_row["name"]
-            song = next_row["song"].replace('*', '\*').replace('_', '\_').replace('`', '\`')
+            song = next_row["song"].replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
             st.success(f"🎤 {name} — time to sing **{song}**!")
         else:
             st.info("✅ No more singers in the queue.")
