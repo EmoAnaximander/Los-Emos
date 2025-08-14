@@ -77,75 +77,13 @@ def delete_signup_by_name(name):
     return False
 
 # --- Song List ---
-SONG_LIST = [
-    "Alkaline Trio - Stupid Kid", "All Time Low - Dear Maria, Count Me In", "Avril Lavigne - Sk8er Boi",
-    "Blink-182 - All the Small Things", "Blink-182 - What's My Age Again?", "Bowling for Soup - 1985",
-    "Brand New - Mix Tape", "Brand New - The Quiet Things That No One Ever Knows",
-    "Dashboard Confessional - Vindicated", "Fall Out Boy - Dance Dance", "Fall Out Boy - Sugar, We're Goin Down",
-    "Good Charlotte - Girls & Boys", "Good Charlotte - The Anthem", "Hawthorne Heights - Ohio Is for Lovers",
-    "Jimmy Eat World - The Middle", "Mayday Parade - Jamie All Over", "My Chemical Romance - Helena",
-    "My Chemical Romance - I'm Not Okay (I Promise)", "New Found Glory - My Friends Over You",
-    "New Found Glory - Understatement", "Panic! At The Disco - Lying Is the Most Fun a Girl Can Have Without Taking Her Clothes Off",
-    "Papa Roach - Last Resort", "Paramore - Misery Business", "Paramore - Still Into You",
-    "Paramore - That's What You Get", "Saves The Day - My Sweet Fracture", "Say Anything - Wow, I Can Get Sexual Too",
-    "Simple Plan - I'd Do Anything", "Something Corporate - Punk Rock Princess",
-    "Story of the Year - Until the Day I Die", "Sugarcult - Memory",
-    "Taking Back Sunday - Cute Without the 'E' (Cut From the Team)", "Taking Back Sunday - MakeDamnSure",
-    "The All-American Rejects - Dirty Little Secret", "The Starting Line - The Best of Me",
-    "The Story So Far - Empty Space", "The Story So Far - Roam", "The Used - Buried Myself Alive",
-    "The Used - The Taste of Ink", "Wheatus - Teenage Dirtbag", "Yellowcard - Ocean Avenue",
-    "Yellowcard - Only One"
-]
-
-# --- Signup Form ---
-with st.form("signup_form"):
-    name = st.text_input("Your name")
-    phone = st.text_input("Your phone number")
-    instagram = st.text_input("Your Instagram (optional, no @ needed)")
-    suggestion = st.text_input("Suggest a song for next time (optional)")
-    taken_songs = df["song"].tolist() if "song" in df.columns else []
-    available_songs = [s for s in SONG_LIST if s not in taken_songs]
-    selected_song = st.selectbox("Pick your song", available_songs)
-    submit = st.form_submit_button("Sign me up!")
-
-    if submit:
-        if not name.strip():
-            st.warning("Please enter your name.")
-        elif selected_song in taken_songs:
-            st.error("That song is already taken.")
-        elif "phone" in df.columns and phone in df["phone"].tolist():
-            st.error("You've already signed up for a song.")
-        else:
-            now = datetime.now().isoformat()
-            worksheet.append_row([now, name, phone.strip(), instagram.strip(), selected_song, suggestion.strip() if suggestion else ""])
-            st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
-
-# --- Undo Signup Button ---
-if name and "name" in df.columns and name in df["name"].tolist():
-    with st.expander("⚠️ Undo My Signup"):
-        confirm_undo = st.checkbox("Yes, I want to remove my signup")
-        if st.button("Undo My Signup") and confirm_undo:
-            if delete_signup_by_name(name):
-                st.success("✅ Your signup has been removed.")
-                st.rerun()
-            else:
-                st.error("⚠️ Could not find your signup to remove.")
-
-# --- Now Singing Display ---
-if st.session_state.called:
-    current_song = st.session_state.called[-1]
-    row = df[df["song"] == current_song].iloc[0]
-    safe_song = current_song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
-    st.markdown(f"## 🎤 NOW SINGING: **{row['name']}** – _{safe_song}_")
-
-# --- Song List ---
 st.subheader("🎶 Song List")
 for song in SONG_LIST:
     if "song" in df.columns and song in df["song"].tolist():
         if st.session_state.host_verified:
-        person = df[df["song"] == song]["name"].values[0]
-        safe_song = song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
-        st.markdown(f"- ~~{safe_song}~~ (🎤 {person})")
+            person = df[df["song"] == song]["name"].values[0]
+            safe_song = song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
+            st.markdown(f"- ~~{safe_song}~~ (🎤 {person})")
         else:
             st.markdown(f"- ~~{song}~~")
     else:
