@@ -64,8 +64,10 @@ logo = Image.open(logo_path)
 col1, col2, col3 = st.columns([3, 4, 3])
 with col2:
     st.image(logo, width=300)
-st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>
-<p style='text-align: center; font-size: 16px;'>One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.</p>", unsafe_allow_html=True)
+st.markdown("""
+<h1 style='text-align: center;'>Singer Signup</h1>
+<p style='text-align: center; font-size: 16px;'>One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.</p>
+""", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 16px;'><a href='https://instagram.com/losemoskaraoke' target='_blank' style='color: white; text-decoration: underline;'>Follow us on Instagram</a></p>", unsafe_allow_html=True)
 
 # --- Signup Form ---
