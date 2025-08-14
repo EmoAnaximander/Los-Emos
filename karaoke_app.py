@@ -56,8 +56,10 @@ st.markdown("""
 
 # --- Title ---
 from PIL import Image
+from pathlib import Path
 
-logo = Image.open("logo.png")
+logo_path = Path(__file__).parent / "logo.png"
+logo = Image.open(logo_path)
 st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
 st.image(logo, width=300)
 st.markdown("</div>", unsafe_allow_html=True)
