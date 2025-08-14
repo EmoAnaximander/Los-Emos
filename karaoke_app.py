@@ -210,7 +210,7 @@ if st.session_state.host_verified and not df.empty:
 if st.session_state.host_verified:
     st.subheader("🧹 Reset for Next Event")
     with st.expander("⚠️ Confirm Reset"):
-    confirm_clear = st.checkbox("Yes, clear the entire signup sheet")
+        confirm_clear = st.checkbox("Yes, clear the entire signup sheet")
     if st.button("Clear All Signups") and confirm_clear:
         worksheet.clear()
         worksheet.append_row(["timestamp", "name", "instagram", "song"])
