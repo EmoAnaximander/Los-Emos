@@ -164,14 +164,19 @@ if st.session_state.host_verified and "song" in df.columns:
     taken = df["song"].tolist()
     release_options = [f"{row['name']} – {row['song']}" for _, row in df.iterrows() if row["song"] in taken]
     selected_release = st.selectbox("Select a signup to remove", release_options, key="free_song")
-    name_to_release, song_to_release = selected_release.split(" – ")
-    with st.expander("⚠️ Confirm Song Removal"):
-        confirm_release = st.checkbox("Yes, remove this signup from the sheet")
-        if st.button("Remove Selected Signup") and confirm_release:
-            match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
-            if not match_row.empty:
-                if delete_signup_by_name(name_to_release):
-                    st.success(f"✅ Removed '{song_to_release}' from the queue.")
+    
+    if " – " in selected_release:
+        name_to_release, song_to_release = selected_release.split(" – ")
+        with st.expander("⚠️ Confirm Song Removal"):
+            confirm_release = st.checkbox("Yes, remove this signup from the sheet")
+            if st.button("Remove Selected Signup") and confirm_release:
+                match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
+                if not match_row.empty:
+                    # Identify the correct row to delete
+                    row_index = match_row.index[0]
+                    records = worksheet.get_all_values()
+                    worksheet.delete_rows(row_index + 2)  # +2 = header + 0-index adjustment
+                    st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
                     st.rerun()
                 else:
                     st.error("⚠️ Could not remove signup.")
@@ -183,19 +188,20 @@ if st.session_state.host_verified and "song" in df.columns:
     all_called = st.session_state.called
     queued = df[~df["song"].isin(all_called)].sort_values("timestamp")
     skip_options = [f"{row['name']} – {row['song']}" for _, row in queued.iterrows()]
+    
     if skip_options:
         to_skip_display = st.selectbox("Select a singer to skip", skip_options, key="skip_singer")
-        to_skip = to_skip_display.split(" – ")[0]
-        if st.button("Skip Selected Singer"):
-            idx = queued["name"].tolist().index(to_skip)
-            if len(queued) > idx + 3:
-                reordered = list(queued.index)
-                reordered.insert(idx + 4, reordered.pop(idx))
-                df = queued.loc[reordered].reset_index(drop=True)
-                st.success(f"✅ {to_skip} moved down 3 spots in the queue.")
-            else:
-                st.warning("⚠️ Not enough people left in the queue to skip that far.")
-
+        if " – " in to_skip_display:
+            to_skip = to_skip_display.split(" – ")[0]
+            if st.button("Skip Selected Singer"):
+                idx = queued["name"].tolist().index(to_skip)
+                if len(queued) > idx + 3:
+                    reordered = list(queued.index)
+                    reordered.insert(idx + 4, reordered.pop(idx))
+                    df = queued.loc[reordered].reset_index(drop=True)
+                    st.success(f"✅ {to_skip} moved down 3 spots in the queue.")
+                else:
+                    st.warning("⚠️ Not enough people left in the queue to skip that far.")
 
 # --- Queue Viewer ---
 if st.session_state.host_verified and "song" in df.columns:
