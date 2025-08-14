@@ -81,6 +81,9 @@ with st.form("signup_form"):
     instagram = st.text_input("Your Instagram (optional, no @ needed)")
     suggestion = st.text_input("Suggest a song for next time (optional)")
     taken_songs = df["song"].tolist() if "song" in df.columns else []
+    song_list_sheet = sheet.worksheet("Songs")
+    song_list_data = song_list_sheet.col_values(1)
+    SONG_LIST = [s for s in song_list_data if s.strip()]
     available_songs = [s for s in SONG_LIST if s not in taken_songs]
     selected_song = st.selectbox("Pick your song", available_songs)
 
@@ -110,6 +113,20 @@ def delete_signup_by_name(name):
             worksheet.delete_rows(i + 1)
             return True
     return False
+
+# --- Undo Signup Button ---
+if phone and "phone" in df.columns and phone in df["phone"].tolist():
+    with st.expander("⚠️ Undo My Signup"):
+        confirm_undo = st.checkbox("Yes, I want to remove my signup")
+        if st.button("Undo My Signup") and confirm_undo:
+            match = df[df["phone"] == phone]
+            if not match.empty:
+                name_to_delete = match.iloc[0]["name"]
+                if delete_signup_by_name(name_to_delete):
+                    st.success("✅ Your signup has been removed.")
+                    st.rerun()
+                else:
+                    st.error("⚠️ Could not find your signup to remove.")
 
 # --- Song List ---
 song_list_sheet = sheet.worksheet("Songs")
