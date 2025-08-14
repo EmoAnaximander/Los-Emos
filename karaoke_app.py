@@ -120,11 +120,12 @@ def delete_signup_by_name(name):
 if 'phone' in locals() and phone and "phone" in df.columns and phone in df["phone"].tolist():
     with st.expander("⚠️ Undo My Signup"):
         confirm_undo = st.checkbox("Yes, I want to remove my signup")
-        if st.button("Undo My Signup") and confirm_undo:
-            match = df[df["phone"] == phone]
-            if not match.empty:
-                song_to_delete = match.iloc[0]["song"]
-                name_to_delete = match.iloc[0]["name"]
+        if confirm_undo:
+            if st.button("Undo My Signup"):
+                match = df[df["phone"] == phone]
+                if not match.empty:
+                    song_to_delete = match.iloc[0]["song"]
+                    name_to_delete = match.iloc[0]["name"]
                 match_row = df[(df["name"] == name_to_delete) & (df["song"] == song_to_delete)]
                 if not match_row.empty:
                     row_index = match_row.index[0]
@@ -200,16 +201,17 @@ if st.session_state.host_verified and "song" in df.columns:
         if " – " in to_skip_display:
             name_part, song_part = to_skip_display.split(" – ")
             match_row = queued[(queued["name"] == name_part) & (queued["song"] == song_part)]
-            if not match_row.empty:
-                idx = match_row.index[0]
-                reordered = list(queued.index)
-                if len(queued) > reordered.index(idx) + 3:
-                    reordered.insert(reordered.index(idx) + 4, reordered.pop(reordered.index(idx)))
-                    st.success(f"✅ {name_part} moved down 3 spots in the queue.")
-                else:
-                    reordered.append(reordered.pop(reordered.index(idx)))
-                    st.success(f"✅ {name_part} moved to the end of the queue.")
-                df = queued.loc[reordered].reset_index(drop=True)
+            if st.button("Skip Selected Singer"):
+                if not match_row.empty:
+                    idx = match_row.index[0]
+                    reordered = list(queued.index)
+                    if len(queued) > reordered.index(idx) + 3:
+                        reordered.insert(reordered.index(idx) + 4, reordered.pop(reordered.index(idx)))
+                        st.success(f"✅ {name_part} moved down 3 spots in the queue.")
+                    else:
+                        reordered.append(reordered.pop(reordered.index(idx)))
+                        st.success(f"✅ {name_part} moved to the end of the queue.")
+                    df = queued.loc[reordered].reset_index(drop=True)
 
 
 # --- Queue Viewer ---
