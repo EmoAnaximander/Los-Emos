@@ -92,6 +92,7 @@ SONG_LIST = [
 with st.form("signup_form"):
     name = st.text_input("Your name")
     instagram = st.text_input("Your Instagram (optional, no @ needed)")
+    suggestion = st.text_input("Suggest a song (optional)")
     taken_songs = df["song"].tolist() if "song" in df.columns else []
     available_songs = [s for s in SONG_LIST if s not in taken_songs]
     selected_song = st.selectbox("Pick your song", available_songs)
@@ -106,7 +107,7 @@ with st.form("signup_form"):
             st.error("You've already signed up for a song.")
         else:
             now = datetime.now().isoformat()
-            worksheet.append_row([now, name, instagram.strip(), selected_song])
+            worksheet.append_row([now, name, instagram.strip(), selected_song, suggestion.strip() if suggestion else ""])
             st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
 
 # --- Undo Signup Button ---
@@ -165,6 +166,24 @@ if st.session_state.host_verified and "song" in df.columns:
                     st.rerun()
                 else:
                     st.error("⚠️ Could not remove signup.")
+
+# --- Skip Button (Move down 3 spots) ---
+if st.session_state.host_verified and "song" in df.columns:
+    st.subheader("⏭️ Skip a Singer (Move Down 3 Spots)")
+    all_called = st.session_state.called
+    queued = df[~df["song"].isin(all_called)].sort_values("timestamp")
+    skip_options = queued["name"].tolist()
+    if skip_options:
+        to_skip = st.selectbox("Select a singer to skip", skip_options, key="skip_singer")
+        if st.button("Skip Selected Singer"):
+            idx = queued["name"].tolist().index(to_skip)
+            if len(queued) > idx + 3:
+                reordered = list(queued.index)
+                reordered.insert(idx + 4, reordered.pop(idx))
+                df = queued.loc[reordered].reset_index(drop=True)
+                st.success(f"✅ {to_skip} moved down 3 spots in the queue.")
+            else:
+                st.warning("⚠️ Not enough people left in the queue to skip that far.")
 
 # --- Queue Viewer ---
 if st.session_state.host_verified and "song" in df.columns:
