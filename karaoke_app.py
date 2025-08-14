@@ -115,7 +115,7 @@ def delete_signup_by_name(name):
     return False
 
 # --- Undo Signup Button ---
-if phone and "phone" in df.columns and phone in df["phone"].tolist():
+if 'phone' in locals() and phone and "phone" in df.columns and phone in df["phone"].tolist():
     with st.expander("⚠️ Undo My Signup"):
         confirm_undo = st.checkbox("Yes, I want to remove my signup")
         if st.button("Undo My Signup") and confirm_undo:
