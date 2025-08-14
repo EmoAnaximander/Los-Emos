@@ -73,7 +73,7 @@ st.markdown("<p style='text-align: center; font-size: 16px;'><a href='https://in
 # --- Signup Form ---
 with st.form("signup_form"):
     name = st.text_input("Your name")
-    phone_raw = st.text_input("Your phone number (10 digits)")
+    phone_raw = st.text_input("Your phone number (10 digits)*")
     phone = ''.join(filter(str.isdigit, phone_raw))
     if len(phone) == 10:
         phone = f"{phone[:3]}-{phone[3:6]}-{phone[6:]}"
@@ -227,6 +227,8 @@ if st.session_state.host_verified and "song" in df.columns:
 if st.session_state.host_verified and not df.empty:
     csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("📥 Download Signups as CSV", csv, "signups.csv", "text/csv")
+
+st.markdown("<p style='text-align: center; font-size: 12px;'>*We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.</p>", unsafe_allow_html=True)
 
 # --- Reset for Next Event ---
 if st.session_state.host_verified:
