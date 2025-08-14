@@ -61,7 +61,7 @@ from pathlib import Path
 logo_path = Path(__file__).parent / "logo.png"
 logo = Image.open(logo_path)
 
-col1, col2, col3 = st.columns([1, 2, 1])
+col1, col2, col3 = st.columns([2, 3, 2])
 with col2:
     st.image(logo, width=300)
 st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>", unsafe_allow_html=True)
