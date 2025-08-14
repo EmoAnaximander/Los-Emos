@@ -67,6 +67,41 @@ with col2:
 st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; font-size: 16px;'>Follow us on Instagram</p>", unsafe_allow_html=True)
 
+# --- Signup Form ---
+st.subheader("📝 Sign Up to Sing")
+with st.form("signup_form"):
+    name = st.text_input("Your name")
+    phone_raw = st.text_input("Your phone number (10 digits)")
+    phone = ''.join(filter(str.isdigit, phone_raw))
+    if len(phone) == 10:
+        phone = f"{phone[:3]}-{phone[3:6]}-{phone[6:]}"
+    elif phone:
+        st.warning("Please enter a valid 10-digit phone number.")
+
+    instagram = st.text_input("Your Instagram (optional, no @ needed)")
+    suggestion = st.text_input("Suggest a song for next time (optional)")
+    taken_songs = df["song"].tolist() if "song" in df.columns else []
+    available_songs = [s for s in SONG_LIST if s not in taken_songs]
+    selected_song = st.selectbox("Pick your song", available_songs)
+
+    submit = st.form_submit_button("Sign me up!")
+
+    if submit:
+        if not name.strip() or not phone or len(phone) != 12:
+            st.warning("Please fill in both your name and a valid phone number.")
+        elif phone in df["phone"].tolist():
+            st.error("You've already signed up for a song.")
+        elif selected_song in taken_songs:
+            st.error("That song is already taken.")
+        else:
+            now = datetime.now().isoformat()
+            worksheet.append_row([
+                now, name.strip(), phone, instagram.strip(),
+                selected_song, suggestion.strip() if suggestion else ""
+            ])
+            st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
+            st.rerun()
+
 # --- Helper to delete signup by name ---
 def delete_signup_by_name(name):
     records = worksheet.get_all_values()
