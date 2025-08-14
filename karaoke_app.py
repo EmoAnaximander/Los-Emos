@@ -135,8 +135,8 @@ if name and "name" in df.columns and name in df["name"].tolist():
 if st.session_state.called:
     current_song = st.session_state.called[-1]
     row = df[df["song"] == current_song].iloc[0]
-safe_song = current_song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
-st.markdown(f"## 🎤 NOW SINGING: **{row['name']}** – _{safe_song}_")
+    safe_song = current_song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
+    st.markdown(f"## 🎤 NOW SINGING: **{row['name']}** – _{safe_song}_")
 
 # --- Song List ---
 st.subheader("🎶 Song List")
