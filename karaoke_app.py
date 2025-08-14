@@ -55,8 +55,8 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Title ---
-st.title("🎤 Los Emos Karaoke Signup")
-st.markdown("One song per person. Signed-up songs are hidden once taken. Let\'s scream into the abyss together.")
+st.image("logo.png", width=300)
+st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>", unsafe_allow_html=True)
 
 # --- Helper to delete signup by name ---
 def delete_signup_by_name(name):
@@ -209,7 +209,9 @@ if st.session_state.host_verified and not df.empty:
 # --- Reset for Next Event ---
 if st.session_state.host_verified:
     st.subheader("🧹 Reset for Next Event")
-    if st.button("Clear All Signups"):
+    with st.expander("⚠️ Confirm Reset"):
+    confirm_clear = st.checkbox("Yes, clear the entire signup sheet")
+    if st.button("Clear All Signups") and confirm_clear:
         worksheet.clear()
         worksheet.append_row(["timestamp", "name", "instagram", "song"])
         st.session_state.called = []
