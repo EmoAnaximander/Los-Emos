@@ -77,6 +77,10 @@ def delete_signup_by_name(name):
     return False
 
 # --- Song List ---
+song_list_sheet = sheet.worksheet("Songs")
+song_list_data = song_list_sheet.col_values(1)
+SONG_LIST = [s for s in song_list_data if s.strip()]
+
 st.subheader("🎶 Song List")
 for song in SONG_LIST:
     if "song" in df.columns and song in df["song"].tolist():
