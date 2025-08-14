@@ -60,9 +60,10 @@ from pathlib import Path
 
 logo_path = Path(__file__).parent / "logo.png"
 logo = Image.open(logo_path)
-st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-st.image(logo, width=300)
-st.markdown("</div>", unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.image(logo, width=300)
 st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>", unsafe_allow_html=True)
 
 # --- Helper to delete signup by name ---
