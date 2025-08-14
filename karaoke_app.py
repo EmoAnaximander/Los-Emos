@@ -55,7 +55,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Title ---
-st.image("logo.png", width=300)
+st.markdown("""
+<div style='text-align: center;'>
+    <img src='logo.png' width='300'>
+</div>
+""", unsafe_allow_html=True)
 st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>", unsafe_allow_html=True)
 
 # --- Helper to delete signup by name ---
