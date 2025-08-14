@@ -155,7 +155,7 @@ with st.expander("Enter Host PIN to unlock controls"):
 
 # --- Release Song for Host ---
 if st.session_state.host_verified and "song" in df.columns:
-    st.subheader("🎭 Release a Song (If Someone Left)")
+    st.subheader("🎭 Release a Song")
     taken = df["song"].tolist()
     song_to_free = st.selectbox("Select a song to free up", taken, key="free_song")
     with st.expander("⚠️ Confirm Song Removal"):
@@ -172,7 +172,7 @@ if st.session_state.host_verified and "song" in df.columns:
 
 # --- Skip Button (Move down 3 spots) ---
 if st.session_state.host_verified and "song" in df.columns:
-    st.subheader("⏭️ Skip a Singer (Move Down 3 Spots)")
+    st.subheader("⏭️ Skip a Singer")
     all_called = st.session_state.called
     queued = df[~df["song"].isin(all_called)].sort_values("timestamp")
     skip_options = queued["name"].tolist()
@@ -203,6 +203,12 @@ if st.session_state.host_verified and "song" in df.columns:
             st.success(f"🎤 {next_row['name']} — time to sing **{next_row['song']}**!")
         else:
             st.info("✅ No more singers in the queue.")
+
+    if st.button("View Full Signup List"):
+        st.subheader("📋 Full Signup List")
+        for _, row in queue.iterrows():
+            tag = f" (@{row['instagram']})" if row['instagram'] else ""
+            st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
 
 # --- Export to CSV ---
 if st.session_state.host_verified and not df.empty:
