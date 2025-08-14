@@ -63,7 +63,9 @@ logo = Image.open(logo_path)
 
 col1, col2, col3 = st.columns([3, 4, 3])
 with col2:
+    st.markdown("<a href='https://instagram.com/losemoskaraoke' target='_blank'>", unsafe_allow_html=True)
     st.image(logo, width=300)
+    st.markdown("</a>", unsafe_allow_html=True)
 st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>", unsafe_allow_html=True)
 
 # --- Helper to delete signup by name ---
