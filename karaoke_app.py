@@ -162,20 +162,20 @@ with st.expander("Enter Host PIN to unlock controls"):
 if st.session_state.host_verified and "song" in df.columns:
     st.subheader("🎭 Release a Song")
     taken = df["song"].tolist()
-    song_choices = [f"{row['name']} – {row['song']}" for _, row in df.iterrows() if row['song'] in taken]
-    song_to_free = st.selectbox("Select a signup to remove", song_choices, key="free_song")
-    song_to_free = song_to_free.split(" – ")[-1]  # extract song title
+    release_options = [f"{row['name']} – {row['song']}" for _, row in df.iterrows() if row["song"] in taken]
+    selected_release = st.selectbox("Select a signup to remove", release_options, key="free_song")
+    name_to_release, song_to_release = selected_release.split(" – ")
     with st.expander("⚠️ Confirm Song Removal"):
         confirm_release = st.checkbox("Yes, remove this signup from the sheet")
         if st.button("Remove Selected Signup") and confirm_release:
-            match_row = df[df["song"] == song_to_free]
+            match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
             if not match_row.empty:
-                name_to_delete = match_row.iloc[0]["name"]
-                if delete_signup_by_name(name_to_delete):
-                    st.success(f"✅ Removed '{song_to_free}' from the queue.")
+                if delete_signup_by_name(name_to_release):
+                    st.success(f"✅ Removed '{song_to_release}' from the queue.")
                     st.rerun()
                 else:
                     st.error("⚠️ Could not remove signup.")
+
 
 # --- Skip Button (Move down 3 spots) ---
 if st.session_state.host_verified and "song" in df.columns:
@@ -195,6 +195,7 @@ if st.session_state.host_verified and "song" in df.columns:
                 st.success(f"✅ {to_skip} moved down 3 spots in the queue.")
             else:
                 st.warning("⚠️ Not enough people left in the queue to skip that far.")
+
 
 # --- Queue Viewer ---
 if st.session_state.host_verified and "song" in df.columns:
