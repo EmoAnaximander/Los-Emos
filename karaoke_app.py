@@ -96,7 +96,7 @@ SONG_LIST = [
 with st.form("signup_form"):
     name = st.text_input("Your name")
     instagram = st.text_input("Your Instagram (optional, no @ needed)")
-    suggestion = st.text_input("Suggest a song (optional)")
+    suggestion = st.text_input("Suggest a song for next time (optional)")
     taken_songs = df["song"].tolist() if "song" in df.columns else []
     available_songs = [s for s in SONG_LIST if s not in taken_songs]
     selected_song = st.selectbox("Pick your song", available_songs)
