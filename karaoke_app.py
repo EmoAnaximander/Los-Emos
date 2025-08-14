@@ -101,6 +101,7 @@ SONG_LIST = [
 # --- Signup Form ---
 with st.form("signup_form"):
     name = st.text_input("Your name")
+    phone = st.text_input("Your phone number")
     instagram = st.text_input("Your Instagram (optional, no @ needed)")
     suggestion = st.text_input("Suggest a song for next time (optional)")
     taken_songs = df["song"].tolist() if "song" in df.columns else []
@@ -113,11 +114,11 @@ with st.form("signup_form"):
             st.warning("Please enter your name.")
         elif selected_song in taken_songs:
             st.error("That song is already taken.")
-        elif "name" in df.columns and name in df["name"].tolist():
+        elif "phone" in df.columns and phone in df["phone"].tolist():
             st.error("You've already signed up for a song.")
         else:
             now = datetime.now().isoformat()
-            worksheet.append_row([now, name, instagram.strip(), selected_song, suggestion.strip() if suggestion else ""])
+            worksheet.append_row([now, name, phone.strip(), instagram.strip(), selected_song, suggestion.strip() if suggestion else ""])
             st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
 
 # --- Undo Signup Button ---
@@ -229,6 +230,6 @@ if st.session_state.host_verified:
         confirm_clear = st.checkbox("Yes, clear the entire signup sheet")
     if st.button("Clear All Signups") and confirm_clear:
         worksheet.clear()
-        worksheet.append_row(["timestamp", "name", "instagram", "song"])
+        worksheet.append_row(["timestamp", "name", "phone", "instagram", "song", "suggestion"])
         st.session_state.called = []
         st.success("✅ All signups and queue cleared.")
