@@ -143,8 +143,8 @@ st.subheader("🎶 Song List")
 for song in SONG_LIST:
     if "song" in df.columns and song in df["song"].tolist():
         if st.session_state.host_verified:
-            person = df[df["song"] == song]["name"].values[0]
-            safe_song = song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
+        person = df[df["song"] == song]["name"].values[0]
+        safe_song = song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
         st.markdown(f"- ~~{safe_song}~~ (🎤 {person})")
         else:
             st.markdown(f"- ~~{song}~~")
