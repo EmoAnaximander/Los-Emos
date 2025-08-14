@@ -63,10 +63,9 @@ logo = Image.open(logo_path)
 
 col1, col2, col3 = st.columns([3, 4, 3])
 with col2:
-    st.markdown("<a href='https://instagram.com/losemoskaraoke' target='_blank'>", unsafe_allow_html=True)
     st.image(logo, width=300)
-    st.markdown("</a>", unsafe_allow_html=True)
 st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; font-size: 16px;'>Follow us on Instagram</p>", unsafe_allow_html=True)
 
 # --- Helper to delete signup by name ---
 def delete_signup_by_name(name):
@@ -136,7 +135,8 @@ if name and "name" in df.columns and name in df["name"].tolist():
 if st.session_state.called:
     current_song = st.session_state.called[-1]
     row = df[df["song"] == current_song].iloc[0]
-    st.markdown(f"## 🎤 NOW SINGING: **{row['name']}** – _{current_song}_")
+safe_song = current_song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
+st.markdown(f"## 🎤 NOW SINGING: **{row['name']}** – _{safe_song}_")
 
 # --- Song List ---
 st.subheader("🎶 Song List")
@@ -144,7 +144,8 @@ for song in SONG_LIST:
     if "song" in df.columns and song in df["song"].tolist():
         if st.session_state.host_verified:
             person = df[df["song"] == song]["name"].values[0]
-            st.markdown(f"- ~~{song}~~ (🎤 {person})")
+            safe_song = song.replace('*', '\*').replace('_', '\_').replace('`', '\`')
+        st.markdown(f"- ~~{safe_song}~~ (🎤 {person})")
         else:
             st.markdown(f"- ~~{song}~~")
     else:
@@ -202,13 +203,16 @@ if st.session_state.host_verified and "song" in df.columns:
     queue = df.sort_values("timestamp")
     remaining = queue[~queue["song"].isin(st.session_state.called)]
     for _, row in remaining.head(3).iterrows():
-        st.markdown(f"- **{row['name']}** → _{row['song']}_")
+        safe_song = row['song'].replace('*', '\*').replace('_', '\_').replace('`', '\`')
+        st.markdown(f"- **{row['name']}** → _{safe_song}_")
 
     if st.button("Call Next Song"):
         if not remaining.empty:
             next_row = remaining.iloc[0]
             st.session_state.called.append(next_row["song"])
-            st.success(f"🎤 {next_row['name']} — time to sing **{next_row['song']}**!")
+            name = next_row["name"]
+            song = next_row["song"].replace('*', '\*').replace('_', '\_').replace('`', '\`')
+            st.success(f"🎤 {name} — time to sing **{song}**!")
         else:
             st.info("✅ No more singers in the queue.")
 
@@ -216,7 +220,8 @@ if st.session_state.host_verified and "song" in df.columns:
         st.subheader("📋 Full Signup List")
         for _, row in queue.iterrows():
             tag = f" (@{row['instagram']})" if row['instagram'] else ""
-            st.markdown(f"- **{row['name']}**{tag} – _{row['song']}_")
+            safe_song = row['song'].replace('*', '\*').replace('_', '\_').replace('`', '\`')
+            st.markdown(f"- **{row['name']}**{tag} – _{safe_song}_")
 
 # --- Export to CSV ---
 if st.session_state.host_verified and not df.empty:
