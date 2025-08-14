@@ -213,7 +213,11 @@ if st.session_state.host_verified and "song" in df.columns:
     if st.button("View Full Signup List"):
         st.subheader("📋 Full Signup List")
         for _, row in queue.iterrows():
-            tag = f" (@{row['instagram']})" if row['instagram'] else ""
+            if row['instagram']:
+                handle = row['instagram'].lstrip("@")
+                tag = f" [@{handle}](https://instagram.com/{handle})"
+            else:
+                tag = ""
             safe_song = row['song'].replace('*', '\*').replace('_', '\_').replace('`', '\`')
             st.markdown(f"- **{row['name']}**{tag} – _{safe_song}_")
 
