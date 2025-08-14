@@ -55,14 +55,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- Title ---
-from PIL import Image
-from pathlib import Path
-
-logo_path = Path(__file__).parent / "logo.png"
-logo = Image.open(logo_path)
-st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-st.image(logo, width=300)
-st.markdown("</div>", unsafe_allow_html=True)
+st.markdown("""
+<div style='text-align: center;'>
+    <img src='logo.png' width='300'>
+</div>
+""", unsafe_allow_html=True)
 st.markdown("<h1 style='text-align: center;'>Singer Signup</h1>", unsafe_allow_html=True)
 
 # --- Helper to delete signup by name ---
