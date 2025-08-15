@@ -238,8 +238,8 @@ if st.session_state.host_verified and "song" in df.columns:
     # --- View Full Signup List ---
     with st.expander("📋 View Full Signup List"):
         for _, row in df.iterrows():
-        safe_song = row['song'].replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
-        st.markdown(f"- **{row['name']}** — {safe_song}")
+            safe_song = row['song'].replace("*", "\*").replace("_", "\_").replace("`", "\`")
+            st.markdown(f"- **{row['name']}** — {safe_song}")
 
     # --- Export to CSV ---
     st.subheader("⬇️ Export Signups to CSV")
