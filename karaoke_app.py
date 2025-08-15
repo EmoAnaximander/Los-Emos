@@ -176,9 +176,9 @@ if st.session_state.host_verified and "song" in df.columns:
         name_to_release, song_to_release = selected_release.split(" – ")
         with st.expander("⚠️ Confirm Song Removal"):
             confirm_release = st.checkbox("Yes, remove this signup from the sheet")
-            if st.button("Remove Selected Signup") and confirm_release:
-                match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
-        if not match_row.empty:
+        if confirm_release and st.button("Remove Selected Signup"):
+            match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
+            if not match_row.empty:
                     # Identify the correct row to delete
                     row_index = int(match_row.index[0])
                     records = worksheet.get_all_values()
