@@ -107,6 +107,11 @@ with st.form("signup_form"):
             st.success(f"🎉 {name}, you're locked in for '{selected_song}'!")
             st.rerun()
 
+st.markdown(
+    "<p style='text-align: center; font-size: 12px;'>*We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.</p>",
+    unsafe_allow_html=True
+)
+
 # --- Helper to delete signup by name ---
 def delete_signup_by_name(name):
     records = worksheet.get_all_values()
@@ -247,7 +252,6 @@ if st.session_state.host_verified and "song" in df.columns:
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button("Click to download", csv, "karaoke_signups.csv", "text/csv")
       
-    st.markdown("<p style='text-align: center; font-size: 12px;'>*We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.</p>", unsafe_allow_html=True)
 
     # --- Reset for Next Event ---
     st.subheader("♻️ Reset for Next Event")
