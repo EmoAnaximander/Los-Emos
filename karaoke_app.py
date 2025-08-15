@@ -173,7 +173,7 @@ if st.session_state.host_verified and "song" in df.columns:
     selected_release = st.selectbox("Select a signup to remove", release_options, key="free_song")
     
     if " – " in selected_release:
-    name_to_release, song_to_release = selected_release.split(" – ")
+        name_to_release, song_to_release = selected_release.split(" – ")
     with st.expander("⚠️ Confirm Song Removal"):
         confirm_release = st.checkbox("Yes, remove this signup from the sheet")
 
