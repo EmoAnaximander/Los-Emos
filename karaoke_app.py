@@ -128,7 +128,7 @@ if 'phone' in locals() and phone and "phone" in df.columns and phone in df["phon
                     name_to_delete = match.iloc[0]["name"]
                 match_row = df[(df["name"] == name_to_delete) & (df["song"] == song_to_delete)]
                 if not match_row.empty:
-                    row_index = match_row.index[0]
+                    row_index = int(match_row.index[0])
                     records = worksheet.get_all_values()
                     worksheet.delete_rows(row_index + 2)
                     st.success("✅ Your signup has been removed.")
