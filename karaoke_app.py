@@ -177,87 +177,12 @@ if st.session_state.host_verified and "song" in df.columns:
         with st.expander("⚠️ Confirm Song Removal"):
             confirm_release = st.checkbox("Yes, remove this signup from the sheet")
         if confirm_release and st.button("Remove Selected Signup"):
-            match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
-            if not match_row.empty:
-                    # Identify the correct row to delete
-                    row_index = int(match_row.index[0])
-                    records = worksheet.get_all_values()
-                    worksheet.delete_rows(row_index + 2)  # +2 = header + 0-index adjustment
-                    st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
-                    st.rerun()
-                else:
-                    st.error("⚠️ Could not remove signup.")
-
-
-# --- Skip Button (Move down 3 spots) ---
-if st.session_state.host_verified and "song" in df.columns:
-    st.subheader("⏭️ Skip a Singer")
-    all_called = st.session_state.called
-    queued = df[~df["song"].isin(all_called)].sort_values("timestamp")
-    skip_options = [f"{row['name']} – {row['song']}" for _, row in queued.iterrows()]
-    
-    if skip_options:
-        to_skip_display = st.selectbox("Select a singer to skip", skip_options, key="skip_singer")
-        if " – " in to_skip_display:
-            name_part, song_part = to_skip_display.split(" – ")
-            match_row = queued[(queued["name"] == name_part) & (queued["song"] == song_part)]
-            if st.button("Skip Selected Singer"):
-                if not match_row.empty:
-                    idx = match_row.index[0]
-                    reordered = list(queued.index)
-                    if len(queued) > reordered.index(idx) + 3:
-                        reordered.insert(reordered.index(idx) + 4, reordered.pop(reordered.index(idx)))
-                        st.success(f"✅ {name_part} moved down 3 spots in the queue.")
-                    else:
-                        reordered.append(reordered.pop(reordered.index(idx)))
-                        st.success(f"✅ {name_part} moved to the end of the queue.")
-                    df = queued.loc[reordered].reset_index(drop=True)
-
-
-# --- Queue Viewer ---
-if st.session_state.host_verified and "song" in df.columns:
-    st.subheader("🧾 Next 3 In Queue")
-    queue = df.sort_values("timestamp")
-    remaining = queue[~queue["song"].isin(st.session_state.called)]
-    for _, row in remaining.head(3).iterrows():
-        safe_song = row['song'].replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
-        st.markdown(f"- **{row['name']}** → _{safe_song}_")
-
-    if st.button("Call Next Song"):
-        if not remaining.empty:
-            next_row = remaining.iloc[0]
-            st.session_state.called.append(next_row["song"])
-            name = next_row["name"]
-            song = next_row["song"].replace("*", "\\*").replace("_", "\\_").replace("`", "\\`")
-            st.success(f"🎤 {name} — time to sing **{song}**!")
-        else:
-            st.info("✅ No more singers in the queue.")
-
-    if st.button("View Full Signup List"):
-        st.subheader("📋 Full Signup List")
-        for _, row in queue.iterrows():
-            if row['instagram']:
-                handle = row['instagram'].lstrip("@")
-                tag = f" [@{handle}](https://instagram.com/{handle})"
-            else:
-                tag = ""
-            safe_song = row['song'].replace('*', '\*').replace('_', '\_').replace('`', '\`')
-            st.markdown(f"- **{row['name']}**{tag} – _{safe_song}_")
-
-# --- Export to CSV ---
-if st.session_state.host_verified and not df.empty:
-    csv = df.to_csv(index=False).encode("utf-8")
-    st.download_button("📥 Download Signups as CSV", csv, "signups.csv", "text/csv")
-
-st.markdown("<p style='text-align: center; font-size: 12px;'>*We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.</p>", unsafe_allow_html=True)
-
-# --- Reset for Next Event ---
-if st.session_state.host_verified:
-    st.subheader("🧹 Reset for Next Event")
-    with st.expander("⚠️ Confirm Reset"):
-        confirm_clear = st.checkbox("Yes, clear the entire signup sheet")
-    if st.button("Clear All Signups") and confirm_clear:
-        worksheet.clear()
-        worksheet.append_row(["timestamp", "name", "phone", "instagram", "song", "suggestion"])
-        st.session_state.called = []
-        st.success("✅ All signups and queue cleared.")
+    match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
+    if not match_row.empty:
+        row_index = int(match_row.index[0])
+        records = worksheet.get_all_values()
+        worksheet.delete_rows(row_index + 2)  # +2 = header + 0-index adjustment
+        st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
+        st.rerun()
+    else:
+        st.error("⚠️ Could not remove signup.")
