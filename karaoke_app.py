@@ -180,7 +180,7 @@ if st.session_state.host_verified and "song" in df.columns:
                 match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
                 if not match_row.empty:
                     # Identify the correct row to delete
-                    row_index = match_row.index[0]
+                    row_index = int(match_row.index[0])
                     records = worksheet.get_all_values()
                     worksheet.delete_rows(row_index + 2)  # +2 = header + 0-index adjustment
                     st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
