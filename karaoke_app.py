@@ -173,16 +173,17 @@ if st.session_state.host_verified and "song" in df.columns:
     selected_release = st.selectbox("Select a signup to remove", release_options, key="free_song")
     
     if " – " in selected_release:
-        name_to_release, song_to_release = selected_release.split(" – ")
-        with st.expander("⚠️ Confirm Song Removal"):
-            confirm_release = st.checkbox("Yes, remove this signup from the sheet")
-        if confirm_release and st.button("Remove Selected Signup"):
-    match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
-    if not match_row.empty:
-        row_index = int(match_row.index[0])
-        records = worksheet.get_all_values()
-        worksheet.delete_rows(row_index + 2)  # +2 = header + 0-index adjustment
-        st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
-        st.rerun()
-    else:
-        st.error("⚠️ Could not remove signup.")
+    name_to_release, song_to_release = selected_release.split(" – ")
+    with st.expander("⚠️ Confirm Song Removal"):
+        confirm_release = st.checkbox("Yes, remove this signup from the sheet")
+
+    if confirm_release and st.button("Remove Selected Signup"):
+        match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
+        if not match_row.empty:
+            row_index = int(match_row.index[0])
+            records = worksheet.get_all_values()
+            worksheet.delete_rows(row_index + 2)  # +2 = header + 0-index adjustment
+            st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
+            st.rerun()
+        else:
+            st.error("⚠️ Could not remove signup.")
