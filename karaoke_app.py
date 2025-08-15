@@ -185,8 +185,6 @@ if st.session_state.host_verified and "song" in df.columns:
                 worksheet.delete_rows(row_index + 2)
                 st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
                 st.rerun()
-            else:
-                st.error("⚠️ Could not remove signup.")
 
     # --- Call Next Singer ---
     st.subheader("🎤 Call Next Singer")
