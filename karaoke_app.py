@@ -171,18 +171,93 @@ if st.session_state.host_verified and "song" in df.columns:
     taken = df["song"].tolist()
     release_options = [f"{row['name']} – {row['song']}" for _, row in df.iterrows() if row["song"] in taken]
     selected_release = st.selectbox("Select a signup to remove", release_options, key="free_song")
-    
+
     if " – " in selected_release:
         name_to_release, song_to_release = selected_release.split(" – ")
-    with st.expander("⚠️ Confirm Song Removal"):
-        confirm_release = st.checkbox("Yes, remove this signup from the sheet")
+        with st.expander("⚠️ Confirm Song Removal"):
+            confirm_release = st.checkbox("Yes, remove this signup from the sheet")
 
-    if confirm_release and st.button("Remove Selected Signup"):
-        match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
-        if not match_row.empty:
-            row_index = int(match_row.index[0])
-            records = worksheet.get_all_values()
-            worksheet.delete_rows(row_index + 2)  # +2 = header + 0-index adjustment
+        if confirm_release and st.button("Remove Selected Signup"):
+            match_row = df[(df["name"] == name_to_release) & (df["song"] == song_to_release)]
+            if not match_row.empty:
+                row_index = int(match_row.index[0])
+                records = worksheet.get_all_values()
+                worksheet.delete_rows(row_index + 2)
+                st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
+                st.rerun()
+            else:
+                st.error("⚠️ Could not remove signup.")
+
+    # --- Call Next Singer ---
+    st.subheader("🎤 Call Next Singer")
+    remaining = df[~df["song"].isin(st.session_state.called)].sort_values("timestamp")
+    if st.button("Call Next Song"):
+        if not remaining.empty:
+            next_row = remaining.iloc[0]
+            st.session_state.called.append(next_row["song"])
+            name = next_row["name"]
+            song = next_row["song"].replace("*", "\*").replace("_", "\_").replace("`", "\`")
+            st.success(f"🎤 {name} — time to sing **{song}**!")
+        else:
+            st.info("✅ No more singers in the queue.")
+
+    # --- Now Singing ---
+    st.subheader("📢 Now Singing")
+    if st.session_state.called:
+        now_song = st.session_state.called[-1]
+        now_row = df[df["song"] == now_song].iloc[0]
+        st.write(f"🎶 {now_row['name']} is singing: {now_row['song']}")
+    else:
+        st.write("No one is singing yet.")
+
+    # --- Next 3 in Queue ---
+    st.subheader("⏭️ Next 3 in Queue")
+    queued = df[~df["song"].isin(st.session_state.called)].sort_values("timestamp")
+    for i, (_, row) in enumerate(queued.head(3).iterrows(), 1):
+        safe_song = row['song'].replace("*", "\*").replace("_", "\_").replace("`", "\`")
+        st.markdown(f"{i}. {row['name']} — {safe_song}")
+
+    # --- Skip a Singer ---
+    st.subheader("⏭️ Skip a Singer")
+    skip_options = [f"{row['name']} – {row['song']}" for _, row in queued.iterrows()]
+    if skip_options:
+        to_skip_display = st.selectbox("Select a singer to skip", skip_options, key="skip_singer")
+        if " – " in to_skip_display:
+            name_part, song_part = to_skip_display.split(" – ")
+            match_row = queued[(queued["name"] == name_part) & (queued["song"] == song_part)]
+            if st.button("Skip Selected Singer"):
+                if not match_row.empty:
+                    idx = match_row.index[0]
+                    reordered = list(queued.index)
+                    if len(queued) > reordered.index(idx) + 3:
+                        reordered.insert(reordered.index(idx) + 4, reordered.pop(reordered.index(idx)))
+                        st.success(f"✅ {name_part} moved down 3 spots in the queue.")
+                    else:
+                        reordered.append(reordered.pop(reordered.index(idx)))
+                        st.success(f"✅ {name_part} moved to the end of the queue.")
+                    df = queued.loc[reordered].reset_index(drop=True)
+
+    # --- View Full Signup List ---
+    st.subheader("📋 View Full Signup List")
+    for _, row in df.iterrows():
+        safe_song = row['song'].replace("*", "\*").replace("_", "\_").replace("`", "\`")
+        st.markdown(f"- **{row['name']}** — {safe_song}")
+
+    # --- Export to CSV ---
+    st.subheader("⬇️ Export Signups to CSV")
+    if st.button("Download CSV"):
+        csv = df.to_csv(index=False).encode("utf-8")
+        st.download_button("Click to download", csv, "karaoke_signups.csv", "text/csv")
+
+    # --- Reset for Next Event ---
+    st.subheader("♻️ Reset for Next Event")
+    with st.expander("⚠️ Danger Zone: Clear All Signups"):
+        confirm_clear = st.checkbox("Yes, clear the entire signup sheet")
+        if confirm_clear and st.button("Clear All Signups"):
+            worksheet.clear()
+            worksheet.append_row(["timestamp", "name", "phone", "instagram", "song", "suggestion"])
+            st.success("✅ All signups have been cleared.")
+            st.rerun()# +2 = header + 0-index adjustment
             st.success(f"✅ Removed '{song_to_release}' by {name_to_release}.")
             st.rerun()
         else:
