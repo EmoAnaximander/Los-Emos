@@ -196,7 +196,7 @@ with st.form("signup_form", clear_on_submit=True):
             errs.append("Phone must be exactly 10 digits.")
         if not song:
             errs.append("Please select a song.")
-        if not errs and digits in df["phone"].tolist():
+        if not errs and digits in df["phone"].astype(str).tolist():
             errs.append("This phone number already signed up.")
         if not errs and song in claimed_songs:
             errs.append("Sorry, that song was just claimed. Pick another.")
@@ -263,7 +263,6 @@ with st.expander("Host Controls"):
         if not st.session_state["host_unlocked"]:
             st.error("Incorrect PIN.")
     if st.session_state.get("host_unlocked"):
-        st.success("Host panel unlocked.")
 
         df = load_signups()
         queue_df = safe_queue(df[df["song"].astype(str).str.len() > 0])
@@ -276,14 +275,30 @@ with st.expander("Host Controls"):
         else:
             st.caption("No one is currently singing.")
 
-        # Call Next Singer (button only)
+        # Call Next Singer (advances through queue; stops at last)
         if not queue_df.empty:
-            next_row = queue_df.iloc[0]
-            name_next = str(next_row.get("name", "")).strip()
-            song_next = str(next_row.get("song", "")).strip()
-            if st.button("Call Next Singer"):
-                st.session_state["now_singing"] = (name_next, song_next)
-                st.success(f"Now calling {name_next} — {song_next}")
+            if "queue_pos" not in st.session_state:
+                st.session_state["queue_pos"] = 0
+            qp = st.session_state["queue_pos"]
+            if qp >= len(queue_df):
+                st.info("You've reached the end of the queue.")
+            else:
+                next_row = queue_df.iloc[qp]
+                name_next = str(next_row.get("name", "")).strip()
+                song_next = str(next_row.get("song", "")).strip()
+                if st.button("Call Next Singer"):
+                    st.session_state["now_singing"] = (name_next, song_next)
+                    st.session_state["queue_pos"] = qp + 1
+                    st.success(f"Now calling {name_next} — {song_next}")
+
+            # Up Next (Next 3)
+            qp2 = st.session_state.get("queue_pos", 0)
+            if qp2 < len(queue_df):
+                upcoming = queue_df.iloc[qp2:qp2+3][["name","song"]].fillna("")
+                if not upcoming.empty:
+                    st.subheader("Up Next (Next 3)")
+                    lines_up = [f"- {i+1}. {r['name']} — {r['song']}" for i, r in upcoming.reset_index(drop=True).iterrows()]
+                    st.markdown("\n".join(lines_up))
         else:
             st.info("No one in the queue yet.")
 
@@ -320,7 +335,7 @@ with st.expander("Host Controls"):
         # Release a Song (delete row)
         st.subheader("Release a Song")
         if not df.empty:
-            df_disp = safe_queue(df)
+            df_disp = safe_queue(df).fillna("")
             df_disp["label"] = df_disp.apply(lambda r: f"{r['name']} — {r['song']}", axis=1)
             release_label = st.selectbox("Select signup to remove", options=[""] + df_disp["label"].tolist(), index=0)
             confirm_release = st.checkbox("Yes, remove this signup")
