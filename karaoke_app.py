@@ -206,7 +206,7 @@ with st.form("signup_form", clear_on_submit=True):
             except Exception:
                 st.error("Could not save your signup. Please try again.")
 
-# Undo right under signup
+# Public: Undo My Signup (moved right under signup)
 with st.expander("Undo My Signup"):
     undo_phone_raw = st.text_input("Enter the same phone number you signed up with (10 digits)", key="undo_phone")
     u_digits = "".join(ch for ch in undo_phone_raw if ch.isdigit())
@@ -236,11 +236,11 @@ st.divider()
 # Privacy disclaimer
 st.info("We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.")
 
-# Full song list (below)
+# Full song list (below the picker)
 st.subheader("All Songs")
-_all_list = load_song_list()
-if _all_list:
-    st.text("\n".join(_all_list))
+all_list = load_song_list()
+if all_list:
+    st.text("\n".join(all_list))
 else:
     st.caption("No songs found yet in the Songs sheet.")
 
@@ -249,7 +249,7 @@ else:
 #############################
 with st.expander("Host Controls"):
     pin = st.text_input("Enter host PIN", type="password")
-    if st.button("Unlock Host Panel" ):
+    if st.button("Unlock Host Panel"):
         st.session_state["host_unlocked"] = (pin == HOST_PIN)
         if not st.session_state["host_unlocked"]:
             st.error("Incorrect PIN.")
@@ -259,7 +259,7 @@ with st.expander("Host Controls"):
         df = load_signups()
         queue_df = safe_queue(df[df["song"].astype(str).str.len() > 0])
 
-        # Now Singing (before Call Next)
+        # Now Singing
         st.subheader("Now Singing")
         if "now_singing" in st.session_state and st.session_state["now_singing"]:
             n, s = st.session_state["now_singing"]
@@ -267,23 +267,27 @@ with st.expander("Host Controls"):
         else:
             st.caption("No one is currently singing.")
 
-        # Call Next Singer
-        st.subheader("Call Next Singer")
+        # Call Next Singer (button only)
         if not queue_df.empty:
             next_row = queue_df.iloc[0]
             name_next = str(next_row.get("name", "")).strip()
             song_next = str(next_row.get("song", "")).strip()
-            if st.button("Call Next"):
+            if st.button("Call Next Singer"):
                 st.session_state["now_singing"] = (name_next, song_next)
                 st.success(f"Now calling {name_next} — {song_next}")
         else:
             st.info("No one in the queue yet.")
 
-        # Show Full Signup List button (inline)
+        # Show Full Signup List (friendly list)
         if st.button("Show Full Signup List"):
-            st.dataframe(safe_queue(df)[HEADERS], use_container_width=True)
+            q = safe_queue(df)[["name", "song"]].fillna("")
+            if not q.empty:
+                lines = [f"- {i+1}. {r['name']} — {r['song']}" for i, r in q.iterrows()]
+                st.markdown("\n".join(lines))
+            else:
+                st.caption("No signups yet.")
 
-        # Skip a Singer (bump 3 spots or to end if fewer than 3)
+        # Skip a Singer (bump 3 spots down or to end)
         st.subheader("Skip a Singer")
         if not queue_df.empty:
             options = [f"{r.name}: {r['name']} — {r['song']}" for _, r in queue_df.reset_index().iterrows()]
