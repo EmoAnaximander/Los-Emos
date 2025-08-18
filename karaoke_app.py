@@ -149,6 +149,15 @@ st.markdown("""<p style='text-align:center;margin:6px 0;'><a href='https://insta
 
 st.divider()
 
+# Persistent success banner (survives reruns)
+if st.session_state.get("signup_success"):
+    _msg = st.session_state["signup_success"]
+    if isinstance(_msg, dict) and _msg.get("song"):
+        st.success(f"You're in! You've signed up to sing '{_msg['song']}'. We'll call your name when it's your turn.")
+        if st.button("Dismiss", key="dismiss_success"):
+            st.session_state["signup_success"] = None
+            st.rerun()
+
 #############################
 # Public signup form        #
 #############################
@@ -200,7 +209,7 @@ with st.form("signup_form", clear_on_submit=True):
             row = [now, name.strip(), digits, instagram.strip(), song, suggestion.strip()]
             try:
                 worksheet.append_row(row, table_range="A1")
-                st.success(f"You're in! You've signed up to sing '{song}'. We'll call your name when it's your turn.")
+                st.session_state["signup_success"] = {"song": song, "name": name.strip()}
                 st.cache_data.clear()
                 st.rerun()
             except Exception:
