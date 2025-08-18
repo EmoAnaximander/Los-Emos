@@ -71,7 +71,7 @@ def load_signups() -> pd.DataFrame:
     if records:
         df = pd.DataFrame(records)
     else:
-        header = worksheet.row_values(1)
+        header = worksheet.row_values(1) or []
         df = pd.DataFrame(columns=[c.strip().lower() for c in header])
     df.columns = [c.strip().lower() for c in df.columns]
     for col in HEADERS:
@@ -97,7 +97,7 @@ def safe_queue(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def get_rows_matrix() -> List[List[str]]:
-    return worksheet.get_all_values()
+    return worksheet.get_all_values() or []
 
 def find_row_by_name_song(name: str, song: str) -> Optional[int]:
     rows = get_rows_matrix()
@@ -122,7 +122,7 @@ def find_row_by_phone(phone: str) -> Tuple[Optional[int], Dict[str, str]]:
             return i, rec
     return None, {}
 
-st.set_page_config(page_title="LoseMos Karaoke Signup", page_icon="🎤", layout="centered")
+st.set_page_config(page_title="Los Emos Karaoke Signup", page_icon="🎤", layout="centered")
 
 col_logo, col_title = st.columns([1,3])
 with col_logo:
@@ -131,7 +131,7 @@ with col_logo:
     except Exception:
         pass
 with col_title:
-    st.title("LoseMos Karaoke Signup 🎤")
+    st.title("Los Emos Karaoke Signup 🎤")
     st.caption("One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.")
     st.markdown("Instagram: **[@losemoskaraoke](https://instagram.com/losemoskaraoke)**")
 
@@ -140,6 +140,8 @@ st.divider()
 df = load_signups()
 claimed_songs = set(df["song"].dropna().astype(str).tolist())
 all_songs = load_song_list()
+if not all_songs:
+    st.warning("No songs found in the 'Songs' worksheet. Add songs in column A under 'Song Title'.")
 available_songs = [s for s in all_songs if s not in claimed_songs]
 
 with st.form("signup_form", clear_on_submit=True):
@@ -207,7 +209,7 @@ with st.expander("⚠️ Undo My Signup"):
                         worksheet.delete_rows(exact_row)
                     else:
                         worksheet.delete_rows(row_idx)
-                    st.success("✅ Your signup has been removed.")
+                    st.success("Your signup has been removed.")
                     st.cache_data.clear()
                     st.rerun()
                 except Exception:
@@ -308,4 +310,4 @@ with st.expander("🔐 Host Controls"):
                 except Exception as e:
                     st.error(f"Could not reset the sheet. Try again. ({e})")
 
-st.caption("© LoseMos Karaoke — built with Streamlit. ")
+st.caption("Los Emos Karaoke — built with Streamlit.")
