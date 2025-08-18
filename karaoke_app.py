@@ -66,8 +66,8 @@ except gspread.WorksheetNotFound:
 try:
     songs_ws = sheet.worksheet("Songs")
 except gspread.WorksheetNotFound:
-    # Create the Songs sheet if missing (no header required)
     songs_ws = sheet.add_worksheet(title="Songs", rows=1000, cols=1)
+    songs_ws.update("A1:A1", [["Song Title"]])
 
 #############################
 # Cached IO helpers         #
@@ -92,10 +92,8 @@ def load_signups() -> pd.DataFrame:
 @st.cache_data(ttl=CACHE_SONGS_TTL, show_spinner=False)
 def load_song_list() -> List[str]:
     vals = songs_ws.col_values(1)
-    # Accept any first row as valid; trim empties and de-dup while preserving order
-    cleaned = [v.strip() for v in vals if isinstance(v, str) and v.strip()]
-    deduped = list(dict.fromkeys(cleaned))
-    return deduped
+    vals = [v for v in vals if v and v.strip() and v.strip().lower() != "song title"]
+    return vals
 
 def safe_queue(df: pd.DataFrame) -> pd.DataFrame:
     if "timestamp" in df.columns:
@@ -144,14 +142,8 @@ with col_c:
     except Exception:
         pass
 st.markdown("""<h1 style='text-align:center;margin:0;'>Song Selection</h1>""", unsafe_allow_html=True)
-st.markdown(
-    """<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.</p>""",
-    unsafe_allow_html=True,
-)
-st.markdown(
-    """<p style='text-align:center;margin:6px 0;'><a href='https://instagram.com/losemoskaraoke' target='_blank'>Follow us on Instagram</a></p>""",
-    unsafe_allow_html=True,
-)
+st.caption("One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.")
+st.markdown("Instagram: **[@losemoskaraoke](https://instagram.com/losemoskaraoke)**")
 
 st.divider()
 
@@ -162,7 +154,7 @@ df = load_signups()
 claimed_songs = set(df["song"].dropna().astype(str).tolist())
 all_songs = load_song_list()
 if not all_songs:
-    st.warning("No songs found in the 'Songs' worksheet.")
+    st.warning("No songs found in the 'Songs' worksheet. Add songs in column A under 'Song Title'.")
 available_songs = [s.strip() for s in all_songs if s and s.strip() and s.strip() not in claimed_songs]
 
 with st.form("signup_form", clear_on_submit=True):
@@ -206,27 +198,14 @@ with st.form("signup_form", clear_on_submit=True):
             row = [now, name.strip(), digits, instagram.strip(), song, suggestion.strip()]
             try:
                 worksheet.append_row(row, table_range="A1")
-                st.success("You're in! We'll call your name when it's your turn.")
+                st.success(f"You're in! You've signed up to sing '{song}'. We'll call your name when it's your turn.")
                 st.cache_data.clear()
                 st.rerun()
             except Exception:
                 st.error("Could not save your signup. Please try again.")
 
-# Privacy disclaimer
-st.info("We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.")
-
-# Full song list (below the picker)
-st.subheader("All Songs")
-all_list = load_song_list()
-if all_list:
-    st.text("\n".join(all_list))
-else:
-    st.caption("No songs found yet in the Songs sheet.")
-
-#############################
-# Public: Undo My Signup    #
-#############################
-with st.expander("⚠️ Undo My Signup"):
+# Public: Undo My Signup (moved right under signup)
+with st.expander("Undo My Signup"):
     undo_phone_raw = st.text_input("Enter the same phone number you signed up with (10 digits)", key="undo_phone")
     u_digits = "".join(ch for ch in undo_phone_raw if ch.isdigit())
     do_undo = st.button("Undo My Signup")
@@ -252,10 +231,13 @@ with st.expander("⚠️ Undo My Signup"):
 
 st.divider()
 
+# Privacy disclaimer
+st.info("We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.")
+
 #############################
 # Host Controls (PIN)       #
 #############################
-with st.expander("🔐 Host Controls"):
+with st.expander("Host Controls"):
     pin = st.text_input("Enter host PIN", type="password")
     if st.button("Unlock Host Panel"):
         st.session_state["host_unlocked"] = (pin == HOST_PIN)
@@ -267,49 +249,57 @@ with st.expander("🔐 Host Controls"):
         df = load_signups()
         queue_df = safe_queue(df[df["song"].astype(str).str.len() > 0])
 
-        # Call Next Singer
-        st.subheader("📣 Call Next Singer")
-        if not queue_df.empty:
-            next_row = queue_df.iloc[0]
-            name_next = str(next_row.get("name", "")).strip()
-            song_next = str(next_row.get("song", "")).strip()
-            if st.button("Call Next"):
-                st.session_state["now_singing"] = (name_next, song_next)
-                st.success(f"Now calling **{name_next}** — *{song_next}*")
-        else:
-            st.info("No one in the queue yet.")
-
         # Now Singing
-        st.subheader("🎶 Now Singing")
+        st.subheader("Now Singing")
         if "now_singing" in st.session_state and st.session_state["now_singing"]:
             n, s = st.session_state["now_singing"]
             st.markdown(f"**{n}** — *{s}*")
         else:
             st.caption("No one is currently singing.")
 
+        # Call Next Singer
+        st.subheader("Call Next Singer")
+        if not queue_df.empty:
+            next_row = queue_df.iloc[0]
+            name_next = str(next_row.get("name", "")).strip()
+            song_next = str(next_row.get("song", "")).strip()
+            if st.button("Call Next"):
+                st.session_state["now_singing"] = (name_next, song_next)
+                st.success(f"Now calling {name_next} — {song_next}")
+        else:
+            st.info("No one in the queue yet.")
+
         # View Next 3
-        st.subheader("👀 Up Next")
+        st.subheader("Call Next Singer (Queue Preview)")
         if len(queue_df) > 1:
             upcoming = queue_df.iloc[1:4][["name","song"]].reset_index(drop=True)
             st.dataframe(upcoming, use_container_width=True, hide_index=True)
         else:
             st.caption("Fewer than 2 people in the queue.")
 
-        # Skip a Singer (session-only priority)
-        st.subheader("⏭️ Skip a Singer (session only)")
+        # Skip a Singer (bump 3 spots down or to end)
+        st.subheader("Skip a Singer")
         if not queue_df.empty:
             options = [f"{r.name}: {r['name']} — {r['song']}" for _, r in queue_df.reset_index().iterrows()]
-            skip_choice = st.selectbox("Choose to move to end (session-only order)", options=options, index=0)
+            skip_choice = st.selectbox("Choose a singer to skip", options=options, index=0)
             if st.button("Skip Selected"):
                 idx = int(skip_choice.split(":", 1)[0])
-                st.session_state.setdefault("skipped_ids", [])
-                st.session_state["skipped_ids"].append(idx)
-                st.success("Moved selected singer to the end (visual only).")
+                df = queue_df.reset_index(drop=True)
+                if len(df) > 3 and idx < len(df):
+                    row_to_move = df.iloc[idx]
+                    df = df.drop(idx)
+                    insert_at = min(idx+3, len(df))
+                    top = df.iloc[:insert_at]
+                    bottom = df.iloc[insert_at:]
+                    df = pd.concat([top, pd.DataFrame([row_to_move]), bottom]).reset_index(drop=True)
+                    st.success("Singer bumped 3 spots down the list.")
+                else:
+                    st.success("Fewer than 3 signups; singer moved to end.")
         else:
             st.caption("No one to skip.")
 
         # Release a Song (delete row)
-        st.subheader("🗑️ Release a Song")
+        st.subheader("Release a Song")
         if not df.empty:
             df_disp = safe_queue(df)
             df_disp["label"] = df_disp.apply(lambda r: f"{r['name']} — {r['song']}", axis=1)
@@ -335,7 +325,7 @@ with st.expander("🔐 Host Controls"):
             st.caption("No signups yet.")
 
         # View Full Signup List
-        with st.expander("📋 View Full Signup List"):
+        with st.expander("View Full Signup List"):
             st.dataframe(safe_queue(df)[HEADERS], use_container_width=True)
 
         # Download CSV
