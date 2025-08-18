@@ -1,0 +1,9 @@
+# Ignore service account credentials
+service_account.json
+
+# Ignore Python cache files
+__pycache__/
+*.pyc
+
+# Ignore Streamlit secrets (if local)
+.streamlit/secrets.toml
