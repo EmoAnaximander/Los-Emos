@@ -129,8 +129,10 @@ def find_row_by_phone(phone: str) -> Tuple[Optional[int], Dict[str, str]]:
         return None, {}
     header = [h.strip().lower() for h in rows[0]]
     for i, row in enumerate(rows[1:], start=2):
+        # normalize stored value to digits-only
         rec = {header[j]: (row[j] if j < len(row) else "") for j in range(len(header))}
-        if rec.get("phone", "") == phone:
+        phone_val = "".join(ch for ch in str(rec.get("phone", "")) if ch.isdigit())
+        if phone_val == phone:
             return i, rec
     return None, {}
 
@@ -144,8 +146,14 @@ with col_c:
     except Exception:
         pass
 st.markdown("""<h1 style='text-align:center;margin:0;'>Song Selection</h1>""", unsafe_allow_html=True)
-st.markdown("""<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.</p>""", unsafe_allow_html=True)
-st.markdown("""<p style='text-align:center;margin:6px 0;'><a href='https://instagram.com/losemoskaraoke' target='_blank'>Follow us on Instagram</a></p>""", unsafe_allow_html=True)
+st.markdown(
+    """<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.</p>""",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    """<p style='text-align:center;margin:6px 0;'><a href='https://instagram.com/losemoskaraoke' target='_blank'>Follow us on Instagram</a></p>""",
+    unsafe_allow_html=True,
+)
 
 st.divider()
 
@@ -263,11 +271,12 @@ with st.expander("Host Controls"):
         if not st.session_state["host_unlocked"]:
             st.error("Incorrect PIN.")
     if st.session_state.get("host_unlocked"):
+        # no success blurb to reduce clutter
 
         df = load_signups()
         queue_df = safe_queue(df[df["song"].astype(str).str.len() > 0])
 
-        # Now Singing
+        # Now Singing (before Call Next)
         st.subheader("Now Singing")
         if "now_singing" in st.session_state and st.session_state["now_singing"]:
             n, s = st.session_state["now_singing"]
@@ -301,13 +310,18 @@ with st.expander("Host Controls"):
                     st.markdown("\n".join(lines_up))
         else:
             st.info("No one in the queue yet.")
-
-        # Show Full Signup List (friendly list)
-        if st.button("Show Full Signup List"):
+        # Show Full Signup List (toggle, friendly list)
+        showing = st.session_state.get("show_full_list", False)
+        label = "Hide Full Signup List" if showing else "Show Full Signup List"
+        if st.button(label, key="toggle_full_list"):
+            st.session_state["show_full_list"] = not showing
+            showing = st.session_state["show_full_list"]
+        if showing:
             q = safe_queue(df)[["name", "song"]].fillna("")
             if not q.empty:
                 lines = [f"- {i+1}. {r['name']} — {r['song']}" for i, r in q.iterrows()]
-                st.markdown("\n".join(lines))
+                st.markdown("
+".join(lines))
             else:
                 st.caption("No signups yet.")
 
@@ -356,24 +370,4 @@ with st.expander("Host Controls"):
                 else:
                     st.error("Could not find that signup anymore.")
         else:
-            st.caption("No signups yet.")
-
-        # Download CSV
-        csv = safe_queue(df).to_csv(index=False)
-        st.download_button("Download CSV", data=csv, file_name="signups.csv", mime="text/csv")
-
-        # Reset for Next Event
-        st.subheader("Reset for Next Event")
-        if st.checkbox("Yes, clear all signups and keep headers"):
-            if st.button("Reset Now"):
-                try:
-                    worksheet.clear()
-                    worksheet.update("A1:F1", [HEADERS])
-                    st.cache_data.clear()
-                    st.success("Sheet reset. Ready for the next event.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Could not reset the sheet. Try again. ({e})")
-
-# Footer
-st.caption("Los Emos Karaoke — built with Streamlit.")
+            st.caption("No sign
