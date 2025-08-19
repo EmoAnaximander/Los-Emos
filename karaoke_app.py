@@ -320,8 +320,7 @@ with st.expander("Host Controls"):
             q = safe_queue(df)[["name", "song"]].fillna("")
             if not q.empty:
                 lines = [f"- {i+1}. {r['name']} — {r['song']}" for i, r in q.iterrows()]
-                st.markdown("
-".join(lines))
+                st.markdown("\n".join(lines))
             else:
                 st.caption("No signups yet.")
 
