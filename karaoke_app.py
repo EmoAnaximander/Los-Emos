@@ -345,7 +345,7 @@ with st.expander("Host Controls"):
         else:
             st.caption("No one to skip.")
 
-        # Release a Song (delete row)
+	# Release a Song
         st.subheader("Release a Song")
         if not df.empty:
             df_disp = safe_queue(df).fillna("")
@@ -364,9 +364,34 @@ with st.expander("Host Controls"):
                         st.success(f"Removed '{song_to_release}' by {name_to_release}.")
                         st.cache_data.clear()
                         st.rerun()
-                    except Exception:
-                        st.error("Could not delete the row. Try again.")
+                    except Exception as e:
+                        st.error(f"Could not delete the row. Try again. ({e})")
                 else:
                     st.error("Could not find that signup anymore.")
         else:
-            st.caption("No sign
+            st.caption("No signups yet.")
+
+        # Download CSV
+        csv = safe_queue(df).to_csv(index=False)
+        st.download_button("Download CSV", data=csv, file_name="signups.csv", mime="text/csv")
+
+        # Reset for Next Event
+        st.subheader("Reset for Next Event")
+        if st.checkbox("Yes, clear all signups and keep headers"):
+            if st.button("Reset Now"):
+                try:
+                    worksheet.clear()
+                    worksheet.update("A1:F1", [HEADERS])
+                    # also reset local session pointers
+                    st.session_state.pop("queue_pos", None)
+                    st.session_state.pop("now_singing", None)
+                    st.cache_data.clear()
+                    st.success("Sheet reset. Ready for the next event.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Could not reset the sheet. Try again. ({e})")
+
+# Footer
+st.caption("Los Emos Karaoke — built with Streamlit.")
+
+
