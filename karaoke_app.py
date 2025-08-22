@@ -257,9 +257,20 @@ st.info("We won't share your data or contact you outside this event. Phone numbe
 st.subheader("All Songs")
 all_list = load_song_list()
 if all_list:
-    st.text("\n".join(all_list))
+    # Show a bullet list; strikethrough any claimed songs
+    lines = []
+    for s in all_list:
+        title = (s or "").strip()
+        if not title:
+            continue
+        if title in claimed_songs:
+            lines.append(f"- ~~{title}~~")  # claimed -> crossed out
+        else:
+            lines.append(f"- {title}")      # available
+    st.markdown("\n".join(lines))
 else:
     st.caption("No songs found yet in the Songs sheet.")
+
 
 #############################
 # Host Controls (PIN)       #
