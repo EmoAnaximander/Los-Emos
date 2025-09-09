@@ -1,0 +1,16 @@
+.git
+.gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+.env
+venv/
+.envrc
+.DS_Store
+.service_account.json
+*.secret.json
+# If you keep local dev credentials, don't send them to the build context
+service_account.json
