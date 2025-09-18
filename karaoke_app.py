@@ -11,6 +11,30 @@ from google.oauth2 import service_account
 # --- Page config MUST be first ---
 st.set_page_config(page_title="Song Selection", layout="centered")
 
+# --- Diagnostics mode: set DIAGNOSTICS_MODE=1 in Cloud Run to avoid stopping early ---
+import os, json
+DIAGNOSTICS_MODE = os.getenv("DIAGNOSTICS_MODE", "0") == "1"
+
+def _safe_bool_env(name: str) -> bool:
+    return bool(os.getenv(name))
+
+def _service_account_email() -> str:
+    raw = os.getenv("GOOGLE_CREDENTIALS", "")
+    try:
+        info = json.loads(raw)
+        return info.get("client_email", "(no client_email)")
+    except Exception:
+        return "(GOOGLE_CREDENTIALS not valid JSON)"
+
+st.sidebar.expander("Diagnostics (host)").write({
+    "HAS_GOOGLE_CREDENTIALS": _safe_bool_env("GOOGLE_CREDENTIALS"),
+    "HAS_SHEET_KEY": _safe_bool_env("SHEET_KEY"),
+    "HAS_HOST_PIN": _safe_bool_env("HOST_PIN"),
+    "SERVICE_ACCOUNT_EMAIL": _service_account_email(),
+    "DIAGNOSTICS_MODE": DIAGNOSTICS_MODE,
+})
+
+
 #############################
 # Configuration & Secrets   #
 #############################
@@ -31,7 +55,8 @@ if GOOGLE_CREDS_RAW:
         ])
     except Exception:
         st.error("Invalid GOOGLE_CREDENTIALS secret. Use triple single quotes in secrets so \\n are preserved.")
-        st.stop()
+        if not DIAGNOSTICS_MODE:
+    		st.stop()
 else:
     if os.path.exists("service_account.json"):
         creds = service_account.Credentials.from_service_account_file(
@@ -43,18 +68,21 @@ else:
         )
     else:
         st.error("Google credentials not configured. Set GOOGLE_CREDENTIALS or provide service_account.json for local dev.")
-        st.stop()
+        if not DIAGNOSTICS_MODE:
+    		st.stop()
 
 # Sheets client & open
 client = gspread.authorize(creds)
 try:
     if not SHEET_KEY:
         st.error("SHEET_KEY is not set.")
-        st.stop()
+        if not DIAGNOSTICS_MODE:
+    		st.stop()
     sheet = client.open_by_key(SHEET_KEY)
 except Exception:
     st.error("Failed to open Google Sheet. Check SHEET_KEY and permissions.")
-    st.stop()
+    if not DIAGNOSTICS_MODE:
+    	st.stop()
 
 # Ensure worksheets
 try:
@@ -404,5 +432,6 @@ with st.expander("Host Controls"):
 
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
+
 
 
