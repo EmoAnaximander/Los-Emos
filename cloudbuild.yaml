@@ -1,5 +1,8 @@
 # cloudbuild.yaml — Build from Dockerfile and deploy to Cloud Run
 
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 substitutions:
   _REGION: us-west2
   _SERVICE: los-emos-karaoke
