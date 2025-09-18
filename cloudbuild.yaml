@@ -1,0 +1,39 @@
+# cloudbuild.yaml — builds Docker image from Dockerfile and deploys to Cloud Run
+# Adjust REGION and SERVICE as needed.
+substitutions:
+  _REGION: us-west2
+  _SERVICE: los-emos-karaoke
+  _REPO_PATH: cloud-run-source-deploy/los-emos/los-emos-karaoke
+
+steps:
+  # Build the image from the Dockerfile at repo root
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - us-west2-docker.pkg.dev/$PROJECT_ID/${_REPO_PATH}:$SHORT_SHA
+      - -f
+      - Dockerfile
+      - .
+
+  # Push the image to Artifact Registry
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - us-west2-docker.pkg.dev/$PROJECT_ID/${_REPO_PATH}:$SHORT_SHA
+
+  # Deploy to Cloud Run (keeps your existing env/secret settings)
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=us-west2-docker.pkg.dev/$PROJECT_ID/${_REPO_PATH}:$SHORT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      # Do NOT set envs/secrets here; they remain as configured on the service
+
+images:
+  - us-west2-docker.pkg.dev/$PROJECT_ID/${_REPO_PATH}:$SHORT_SHA
