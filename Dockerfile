@@ -30,5 +30,8 @@ ENV STREAMLIT_SERVER_HEADLESS=true \
 EXPOSE 8080
 
 # Use shell form so $PORT expands at runtime
-CMD streamlit run app.py --server.port=$PORT --server.address=0.0.0.0
-
+CMD streamlit run app.py \
+  --server.port=$PORT \
+  --server.address=0.0.0.0 \
+  --server.enableCORS=false \
+  --server.enableXsrfProtection=false
