@@ -6,7 +6,7 @@ options:
 substitutions:
   _REGION: us-west2
   _SERVICE: los-emos-karaoke
-  _AR_PATH: us-west2-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/los-emos/los-emos-karaoke
+  _AR_PATH: us-west2-docker.pkg.dev/steady-petal-471617-c1/cloud-run-source-deploy/los-emos/los-emos-karaoke
 
 steps:
   # 1) Build container image from Dockerfile
