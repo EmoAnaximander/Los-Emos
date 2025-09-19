@@ -2,7 +2,4 @@ streamlit==1.37.1
 gspread==6.1.4
 pandas==2.2.2
 google-auth==2.34.0
-
-# Optional but nice-to-have:
-# tzdata==2024.1           # avoids timezone issues in slim containers
-# google-auth-httplib2==0.2.0  # rarely needed; only if you hit auth transport errors
+tornado>=6.3,<7
