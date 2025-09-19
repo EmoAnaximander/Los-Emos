@@ -19,17 +19,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy app source
 COPY karaoke_app.py /app/app.py
-# Copy your logo asset (since you have it in the repo root)
 COPY logo.png /app/logo.png
 
-# Streamlit runtime config (do NOT set STREAMLIT_SERVER_PORT)
+# 👇 Add this line right after the app copy
+COPY .streamlit /app/.streamlit
+
+# Streamlit runtime config
 ENV STREAMLIT_SERVER_HEADLESS=true \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
     STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
 EXPOSE 8080
 
-# Use shell form so $PORT expands at runtime
+# Start Streamlit with proxy-friendly flags
 CMD streamlit run app.py \
   --server.port=$PORT \
   --server.address=0.0.0.0 \
