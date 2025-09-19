@@ -21,14 +21,27 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY karaoke_app.py /app/app.py
 COPY logo.png /app/logo.png
 
-# 👇 Add this line right after the app copy
-COPY .streamlit /app/.streamlit
+# Create Streamlit config directly inside the image
+RUN mkdir -p /app/.streamlit && printf "%s\n" \
+  "[server]" \
+  "headless = true" \
+  "address = \"0.0.0.0\"" \
+  "enableCORS = false" \
+  "enableXsrfProtection = false" \
+  "enableWebsocketCompression = false" \
+  "maxUploadSize = 200" \
+  "" \
+  "[browser]" \
+  "gatherUsageStats = false" \
+  > /app/.streamlit/config.toml
 
-# Streamlit runtime config
+# Extra logging so startup shows config in Cloud Run logs
+ENV STREAMLIT_LOG_LEVEL=debug
+
+# Streamlit runtime config (don’t set STREAMLIT_SERVER_PORT here)
 ENV STREAMLIT_SERVER_HEADLESS=true \
     STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
     STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-    STREAMLIT_LOG_LEVEL=debug
 
 EXPOSE 8080
 
@@ -37,4 +50,5 @@ CMD streamlit run app.py \
   --server.port=$PORT \
   --server.address=0.0.0.0 \
   --server.enableCORS=false \
-  --server.enableXsrfProtection=false
+  --server.enableXsrfProtection=false \
+  --server.enableWebsocketCompression=false
