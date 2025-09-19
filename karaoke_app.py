@@ -11,8 +11,10 @@ from google.oauth2 import service_account
 # --- Page config MUST be first ---
 st.set_page_config(page_title="Song Selection", layout="centered")
 
+# TEMP heartbeat so you can tell the app started (remove once stable)
+st.write("App starting…")
+
 # --- Diagnostics mode: set DIAGNOSTICS_MODE=1 in Cloud Run to avoid stopping early ---
-import os, json
 DIAGNOSTICS_MODE = os.getenv("DIAGNOSTICS_MODE", "0") == "1"
 
 def _safe_bool_env(name: str) -> bool:
@@ -34,7 +36,6 @@ st.sidebar.expander("Diagnostics (host)").write({
     "DIAGNOSTICS_MODE": DIAGNOSTICS_MODE,
 })
 
-
 #############################
 # Configuration & Secrets   #
 #############################
@@ -44,19 +45,23 @@ HOST_PIN = st.secrets.get("HOST_PIN", os.getenv("HOST_PIN", "changeme"))
 SHEET_KEY = st.secrets.get("SHEET_KEY", os.getenv("SHEET_KEY", ""))
 GOOGLE_CREDS_RAW = st.secrets.get("GOOGLE_CREDENTIALS", os.getenv("GOOGLE_CREDENTIALS", ""))
 
-# Credentials
+# Credentials (robust + show exceptions)
 creds: service_account.Credentials
 if GOOGLE_CREDS_RAW:
     try:
         info = json.loads(GOOGLE_CREDS_RAW)
-        creds = service_account.Credentials.from_service_account_info(info, scopes=[
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ])
-    except Exception:
+        creds = service_account.Credentials.from_service_account_info(
+            info,
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive",
+            ],
+        )
+    except Exception as e:
         st.error("Invalid GOOGLE_CREDENTIALS secret. Use triple single quotes in secrets so \\n are preserved.")
         if not DIAGNOSTICS_MODE:
-    		st.stop()
+            st.exception(e)
+            st.stop()
 else:
     if os.path.exists("service_account.json"):
         creds = service_account.Credentials.from_service_account_file(
@@ -69,7 +74,7 @@ else:
     else:
         st.error("Google credentials not configured. Set GOOGLE_CREDENTIALS or provide service_account.json for local dev.")
         if not DIAGNOSTICS_MODE:
-    		st.stop()
+            st.stop()
 
 # Sheets client & open
 client = gspread.authorize(creds)
@@ -77,12 +82,13 @@ try:
     if not SHEET_KEY:
         st.error("SHEET_KEY is not set.")
         if not DIAGNOSTICS_MODE:
-    		st.stop()
+            st.stop()
     sheet = client.open_by_key(SHEET_KEY)
-except Exception:
+except Exception as e:
     st.error("Failed to open Google Sheet. Check SHEET_KEY and permissions.")
     if not DIAGNOSTICS_MODE:
-    	st.stop()
+        st.exception(e)
+        st.stop()
 
 # Ensure worksheets
 try:
@@ -157,7 +163,6 @@ def find_row_by_phone(phone: str) -> Tuple[Optional[int], Dict[str, str]]:
         return None, {}
     header = [h.strip().lower() for h in rows[0]]
     for i, row in enumerate(rows[1:], start=2):
-        # normalize stored value to digits-only
         rec = {header[j]: (row[j] if j < len(row) else "") for j in range(len(header))}
         phone_val = "".join(ch for ch in str(rec.get("phone", "")) if ch.isdigit())
         if phone_val == phone:
@@ -167,7 +172,7 @@ def find_row_by_phone(phone: str) -> Tuple[Optional[int], Dict[str, str]]:
 #############################
 # Header (centered logo)    #
 #############################
-col_l, col_c, col_r = st.columns([1,2,1])
+col_l, col_c, col_r = st.columns([1, 2, 1])
 with col_c:
     try:
         st.image("logo.png", caption=None)
@@ -281,24 +286,22 @@ st.divider()
 # Privacy disclaimer
 st.info("We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.")
 
-# Full song list (below the picker)
+# Full song list (below the picker) with strikethrough for claimed
 st.subheader("All Songs")
 all_list = load_song_list()
 if all_list:
-    # Show a bullet list; strikethrough any claimed songs
     lines = []
     for s in all_list:
         title = (s or "").strip()
         if not title:
             continue
         if title in claimed_songs:
-            lines.append(f"- ~~{title}~~")  # claimed -> crossed out
+            lines.append(f"- ~~{title}~~")
         else:
-            lines.append(f"- {title}")      # available
+            lines.append(f"- {title}")
     st.markdown("\n".join(lines))
 else:
     st.caption("No songs found yet in the Songs sheet.")
-
 
 #############################
 # Host Controls (PIN)       #
@@ -310,7 +313,7 @@ with st.expander("Host Controls"):
         if not st.session_state["host_unlocked"]:
             st.error("Incorrect PIN.")
     if st.session_state.get("host_unlocked"):
-        # no success blurb to reduce clutter
+        # Reduced clutter (no permanent unlocked blurb)
 
         df = load_signups()
         queue_df = safe_queue(df[df["song"].astype(str).str.len() > 0])
@@ -342,13 +345,17 @@ with st.expander("Host Controls"):
             # Up Next (Next 3)
             qp2 = st.session_state.get("queue_pos", 0)
             if qp2 < len(queue_df):
-                upcoming = queue_df.iloc[qp2:qp2+3][["name","song"]].fillna("")
+                upcoming = queue_df.iloc[qp2:qp2+3][["name", "song"]].fillna("")
                 if not upcoming.empty:
                     st.subheader("Up Next (Next 3)")
-                    lines_up = [f"- {i+1}. {r['name']} — {r['song']}" for i, r in upcoming.reset_index(drop=True).iterrows()]
+                    lines_up = [
+                        f"- {i+1}. {r['name']} — {r['song']}"
+                        for i, r in upcoming.reset_index(drop=True).iterrows()
+                    ]
                     st.markdown("\n".join(lines_up))
         else:
             st.info("No one in the queue yet.")
+
         # Show Full Signup List (toggle, friendly list)
         showing = st.session_state.get("show_full_list", False)
         label = "Hide Full Signup List" if showing else "Show Full Signup List"
@@ -374,7 +381,7 @@ with st.expander("Host Controls"):
                 if len(df_reset) > 3 and idx < len(df_reset):
                     row_to_move = df_reset.iloc[idx]
                     df_reset = df_reset.drop(idx)
-                    insert_at = min(idx+3, len(df_reset))
+                    insert_at = min(idx + 3, len(df_reset))
                     top = df_reset.iloc[:insert_at]
                     bottom = df_reset.iloc[insert_at:]
                     df_reset = pd.concat([top, pd.DataFrame([row_to_move]), bottom]).reset_index(drop=True)
@@ -384,7 +391,7 @@ with st.expander("Host Controls"):
         else:
             st.caption("No one to skip.")
 
-	# Release a Song
+        # Release a Song
         st.subheader("Release a Song")
         if not df.empty:
             df_disp = safe_queue(df).fillna("")
@@ -432,6 +439,3 @@ with st.expander("Host Controls"):
 
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
-
-
-
