@@ -51,4 +51,7 @@ CMD streamlit run app.py \
   --server.address=0.0.0.0 \
   --server.enableCORS=false \
   --server.enableXsrfProtection=false \
-  --server.enableWebsocketCompression=false
+  --server.enableWebsocketCompression=false \
+  --server.baseUrlPath="" \
+  --logger.level=debug
+
