@@ -11,6 +11,10 @@ from google.oauth2 import service_account
 # --- Page config MUST be first ---
 st.set_page_config(page_title="Song Selection", layout="centered")
 
+import pathlib
+cfg = pathlib.Path("/app/.streamlit/config.toml")
+st.caption(f"Config exists: {cfg.exists()}  —  {cfg}")
+
 # TEMP heartbeat so you can tell the app started (remove once stable)
 st.write("App starting…")
 
@@ -439,3 +443,4 @@ with st.expander("Host Controls"):
 
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
+
