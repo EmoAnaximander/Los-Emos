@@ -25,17 +25,27 @@ def _service_account_email() -> str:
     except Exception:
         return "(GOOGLE_CREDENTIALS not valid JSON)"
 
-# --------- READ SECRETS SAFELY (no secrets.toml required) -------
+# --------- READ SECRETS SAFELY (ENV first; no secrets.toml required) -------
 def read_secret(key: str, default: str = "") -> str:
     """
-    Read from st.secrets if present; otherwise fall back to environment vars.
-    This prevents FileNotFoundError when no secrets.toml exists in the container.
+    Read from environment variables first (Cloud Run).
+    Only touch st.secrets if a secrets.toml file actually exists.
     """
+    v = os.getenv(key)
+    if v not in (None, ""):
+        return v
     try:
-        # st.secrets access throws if secrets.toml is missing; catch & fall back.
-        return st.secrets.get(key, os.getenv(key, default))  # type: ignore[attr-defined]
+        import pathlib
+        # Only access st.secrets if a secrets.toml is physically present
+        candidates = [
+            pathlib.Path("/app/.streamlit/secrets.toml"),
+            pathlib.Path.home() / ".streamlit" / "secrets.toml",
+        ]
+        if any(p.exists() for p in candidates):
+            return st.secrets.get(key, default)  # type: ignore[attr-defined]
     except Exception:
-        return os.getenv(key, default)
+        pass
+    return default
 
 #############################
 # Configuration & Secrets   #
@@ -456,6 +466,7 @@ with st.expander("Host Controls"):
                 except Exception as e:
                     st.error(f"Could not reset the sheet. Try again. ({e})")
 
-# Footer
+# Footer + revision stamp so you can verify the new deployment
 st.caption("Los Emos Karaoke — built with Streamlit.")
+st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
 
