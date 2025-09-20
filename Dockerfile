@@ -22,6 +22,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY karaoke_app.py /app/app.py
 COPY logo.png /app/logo.png
 
+# --- TEMPORARY DEBUGGING STEPS ---
+# This will show you the contents of the /app directory
+RUN ls -l /app 
+
+# This will show you the contents of the root directory
+RUN ls -l / 
+
 # The EXPOSE instruction signals which port the container listens on
 # Google Cloud Run expects the app to listen on the port specified by the PORT environment variable,
 # which defaults to 8080.
