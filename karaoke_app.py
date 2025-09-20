@@ -11,14 +11,7 @@ from google.oauth2 import service_account
 # --- Page config MUST be first ---
 st.set_page_config(page_title="Song Selection", layout="centered")
 
-import pathlib
-cfg = pathlib.Path("/app/.streamlit/config.toml")
-st.caption(f"Config exists: {cfg.exists()}  —  {cfg}")
-
-# TEMP heartbeat so you can tell the app started (remove once stable)
-st.write("App starting…")
-
-# --- Diagnostics mode: set DIAGNOSTICS_MODE=1 in Cloud Run to avoid stopping early ---
+# ---------------- Diagnostics toggle (optional) ----------------
 DIAGNOSTICS_MODE = os.getenv("DIAGNOSTICS_MODE", "0") == "1"
 
 def _safe_bool_env(name: str) -> bool:
@@ -32,24 +25,40 @@ def _service_account_email() -> str:
     except Exception:
         return "(GOOGLE_CREDENTIALS not valid JSON)"
 
-st.sidebar.expander("Diagnostics (host)").write({
-    "HAS_GOOGLE_CREDENTIALS": _safe_bool_env("GOOGLE_CREDENTIALS"),
-    "HAS_SHEET_KEY": _safe_bool_env("SHEET_KEY"),
-    "HAS_HOST_PIN": _safe_bool_env("HOST_PIN"),
-    "SERVICE_ACCOUNT_EMAIL": _service_account_email(),
-    "DIAGNOSTICS_MODE": DIAGNOSTICS_MODE,
-})
+# --------- READ SECRETS SAFELY (no secrets.toml required) -------
+def read_secret(key: str, default: str = "") -> str:
+    """
+    Read from st.secrets if present; otherwise fall back to environment vars.
+    This prevents FileNotFoundError when no secrets.toml exists in the container.
+    """
+    try:
+        # st.secrets access throws if secrets.toml is missing; catch & fall back.
+        return st.secrets.get(key, os.getenv(key, default))  # type: ignore[attr-defined]
+    except Exception:
+        return os.getenv(key, default)
 
 #############################
 # Configuration & Secrets   #
 #############################
 HEADERS = ["timestamp", "name", "phone", "instagram", "song", "suggestion"]
 
-HOST_PIN = st.secrets.get("HOST_PIN", os.getenv("HOST_PIN", "changeme"))
-SHEET_KEY = st.secrets.get("SHEET_KEY", os.getenv("SHEET_KEY", ""))
-GOOGLE_CREDS_RAW = st.secrets.get("GOOGLE_CREDENTIALS", os.getenv("GOOGLE_CREDENTIALS", ""))
+HOST_PIN         = read_secret("HOST_PIN", "changeme")
+SHEET_KEY        = read_secret("SHEET_KEY", "")
+GOOGLE_CREDS_RAW = read_secret("GOOGLE_CREDENTIALS", "")
 
-# Credentials (robust + show exceptions)
+# Optional diagnostics panel in sidebar
+try:
+    st.sidebar.expander("Diagnostics (host)").write({
+        "HAS_GOOGLE_CREDENTIALS": _safe_bool_env("GOOGLE_CREDENTIALS"),
+        "HAS_SHEET_KEY": _safe_bool_env("SHEET_KEY"),
+        "HAS_HOST_PIN": _safe_bool_env("HOST_PIN"),
+        "SERVICE_ACCOUNT_EMAIL": _service_account_email(),
+        "DIAGNOSTICS_MODE": DIAGNOSTICS_MODE,
+    })
+except Exception:
+    pass
+
+# ------------------ Google credentials setup -------------------
 creds: service_account.Credentials
 if GOOGLE_CREDS_RAW:
     try:
@@ -61,10 +70,9 @@ if GOOGLE_CREDS_RAW:
                 "https://www.googleapis.com/auth/drive",
             ],
         )
-    except Exception as e:
-        st.error("Invalid GOOGLE_CREDENTIALS secret. Use triple single quotes in secrets so \\n are preserved.")
+    except Exception:
+        st.error("Invalid GOOGLE_CREDENTIALS secret. Ensure it is valid JSON.")
         if not DIAGNOSTICS_MODE:
-            st.exception(e)
             st.stop()
 else:
     if os.path.exists("service_account.json"):
@@ -76,7 +84,10 @@ else:
             ],
         )
     else:
-        st.error("Google credentials not configured. Set GOOGLE_CREDENTIALS or provide service_account.json for local dev.")
+        st.error(
+            "Google credentials not configured. "
+            "Set GOOGLE_CREDENTIALS or provide service_account.json for local dev."
+        )
         if not DIAGNOSTICS_MODE:
             st.stop()
 
@@ -88,10 +99,9 @@ try:
         if not DIAGNOSTICS_MODE:
             st.stop()
     sheet = client.open_by_key(SHEET_KEY)
-except Exception as e:
-    st.error("Failed to open Google Sheet. Check SHEET_KEY and permissions.")
+except Exception:
+    st.error("Failed to open Google Sheet. Check SHEET_KEY and share with the service account.")
     if not DIAGNOSTICS_MODE:
-        st.exception(e)
         st.stop()
 
 # Ensure worksheets
@@ -182,13 +192,17 @@ with col_c:
         st.image("logo.png", caption=None)
     except Exception:
         pass
-st.markdown("""<h1 style='text-align:center;margin:0;'>Song Selection</h1>""", unsafe_allow_html=True)
+
 st.markdown(
-    """<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.</p>""",
+    "<h1 style='text-align:center;margin:0;'>Song Selection</h1>",
     unsafe_allow_html=True,
 )
 st.markdown(
-    """<p style='text-align:center;margin:6px 0;'><a href='https://instagram.com/losemoskaraoke' target='_blank'>Follow us on Instagram</a></p>""",
+    "<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.</p>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<p style='text-align:center;margin:6px 0;'><a href='https://instagram.com/losemoskaraoke' target='_blank'>Follow us on Instagram</a></p>",
     unsafe_allow_html=True,
 )
 
@@ -198,7 +212,9 @@ st.divider()
 if st.session_state.get("signup_success"):
     _msg = st.session_state["signup_success"]
     if isinstance(_msg, dict) and _msg.get("song"):
-        st.success(f"You're in! You've signed up to sing '{_msg['song']}'. We'll call your name when it's your turn.")
+        st.success(
+            f"You're in! You've signed up to sing '{_msg['song']}'. We'll call your name when it's your turn."
+        )
         if st.button("Dismiss", key="dismiss_success"):
             st.session_state["signup_success"] = None
             st.rerun()
@@ -218,7 +234,7 @@ with st.form("signup_form", clear_on_submit=True):
     phone_raw = st.text_input("Phone (10 digits)", help="We use this only to ensure one signup per person.")
     digits = "".join(ch for ch in phone_raw if ch.isdigit())
     formatted = (f"{digits[0:3]}-{digits[3:6]}-{digits[6:10]}" if len(digits) >= 10 else phone_raw)
-    if phone_raw and len(digits) <= 10 and len(digits) >= 4:
+    if phone_raw and 4 <= len(digits) <= 10:
         st.caption(f"Formatted: {formatted}")
 
     instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
@@ -260,7 +276,7 @@ with st.form("signup_form", clear_on_submit=True):
             except Exception:
                 st.error("Could not save your signup. Please try again.")
 
-# Public: Undo My Signup (moved right under signup)
+# Public: Undo My Signup (right under signup)
 with st.expander("Undo My Signup"):
     undo_phone_raw = st.text_input("Enter the same phone number you signed up with (10 digits)", key="undo_phone")
     u_digits = "".join(ch for ch in undo_phone_raw if ch.isdigit())
@@ -290,7 +306,7 @@ st.divider()
 # Privacy disclaimer
 st.info("We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.")
 
-# Full song list (below the picker) with strikethrough for claimed
+# Full song list with claimed crossed out
 st.subheader("All Songs")
 all_list = load_song_list()
 if all_list:
@@ -317,8 +333,7 @@ with st.expander("Host Controls"):
         if not st.session_state["host_unlocked"]:
             st.error("Incorrect PIN.")
     if st.session_state.get("host_unlocked"):
-        # Reduced clutter (no permanent unlocked blurb)
-
+        # Load queue
         df = load_signups()
         queue_df = safe_queue(df[df["song"].astype(str).str.len() > 0])
 
@@ -395,7 +410,7 @@ with st.expander("Host Controls"):
         else:
             st.caption("No one to skip.")
 
-        # Release a Song
+        # Release a Song (delete row)
         st.subheader("Release a Song")
         if not df.empty:
             df_disp = safe_queue(df).fillna("")
