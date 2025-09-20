@@ -1,57 +1,39 @@
 # syntax=docker/dockerfile:1
-
 FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+# Set environment variables for non-buffered Python output
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONWONTWRITEBYTECODE=1
 
-# Minimal system deps
+# Install minimal system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
- && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
+# Set working directory inside the container
 WORKDIR /app
 
-# Install Python deps first (better layer caching)
+# Install Python dependencies first for better caching
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app source
+# Copy the application source code
 COPY karaoke_app.py /app/app.py
 COPY logo.png /app/logo.png
 
-# Create Streamlit config directly inside the image
-RUN mkdir -p /app/.streamlit && printf "%s\n" \
-  "[server]" \
-  "headless = true" \
-  "address = \"0.0.0.0\"" \
-  "enableCORS = false" \
-  "enableXsrfProtection = false" \
-  "enableWebsocketCompression = false" \
-  "maxUploadSize = 200" \
-  "" \
-  "[browser]" \
-  "gatherUsageStats = false" \
-  > /app/.streamlit/config.toml
-
-# Extra logging so startup shows config in Cloud Run logs
-ENV STREAMLIT_LOG_LEVEL=debug
-
-# Streamlit runtime config (don’t set STREAMLIT_SERVER_PORT here)
-ENV STREAMLIT_SERVER_HEADLESS=true \
-    STREAMLIT_SERVER_ADDRESS=0.0.0.0 \
-    STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
-
+# The EXPOSE instruction signals which port the container listens on
+# Google Cloud Run expects the app to listen on the port specified by the PORT environment variable,
+# which defaults to 8080.
 EXPOSE 8080
 
-# Start Streamlit with proxy-friendly flags
-CMD streamlit run app.py \
-  --server.port=$PORT \
-  --server.address=0.0.0.0 \
-  --server.enableCORS=false \
-  --server.enableXsrfProtection=false \
-  --server.enableWebsocketCompression=false \
-  --server.baseUrlPath="" \
-  --logger.level=debug
-
+# Start Streamlit with proxy-friendly flags, passing the port and address directly.
+# This CMD command takes precedence over any settings in a config.toml file.
+CMD ["streamlit", "run", "app.py", \
+    "--server.port", "8080", \
+    "--server.address", "0.0.0.0", \
+    "--server.enableCORS", "true", \
+    "--server.enableXsrfProtection", "false", \
+    "--server.baseUrlPath", "", \
+    "--server.headless", "true", \
+    "--logger.level", "debug"]
