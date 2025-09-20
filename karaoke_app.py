@@ -1,5 +1,6 @@
 import os
 import json
+from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from datetime import datetime
 
@@ -11,65 +12,53 @@ from google.oauth2 import service_account
 # --- Page config MUST be first ---
 st.set_page_config(page_title="Song Selection", layout="centered")
 
-# ---------------- Diagnostics toggle (optional) ----------------
+# --- Diagnostics mode (optional): set DIAGNOSTICS_MODE=1 in Cloud Run to avoid early st.stop()s ---
 DIAGNOSTICS_MODE = os.getenv("DIAGNOSTICS_MODE", "0") == "1"
 
-def _safe_bool_env(name: str) -> bool:
-    return bool(os.getenv(name))
-
-def _service_account_email() -> str:
-    raw = os.getenv("GOOGLE_CREDENTIALS", "")
-    try:
-        info = json.loads(raw)
-        return info.get("client_email", "(no client_email)")
-    except Exception:
-        return "(GOOGLE_CREDENTIALS not valid JSON)"
-
-# --------- READ SECRETS SAFELY (ENV first; no secrets.toml required) -------
-def read_secret(key: str, default: str = "") -> str:
+#############################
+# Secret access helper      #
+#############################
+def get_secret(name: str, default: str = "") -> str:
     """
-    Read from environment variables first (Cloud Run).
-    Only touch st.secrets if a secrets.toml file actually exists.
+    Robustly read a secret:
+      1) Streamlit secrets (if available)
+      2) Environment variables
+      3) Fallback default
+    Never raises the Streamlit secrets error if .streamlit/secrets.toml is missing.
     """
-    v = os.getenv(key)
-    if v not in (None, ""):
-        return v
     try:
-        import pathlib
-        # Only access st.secrets if a secrets.toml is physically present
-        candidates = [
-            pathlib.Path("/app/.streamlit/secrets.toml"),
-            pathlib.Path.home() / ".streamlit" / "secrets.toml",
-        ]
-        if any(p.exists() for p in candidates):
-            return st.secrets.get(key, default)  # type: ignore[attr-defined]
+        if hasattr(st, "secrets") and name in st.secrets:
+            val = st.secrets.get(name, default)
+            if isinstance(val, (dict, list)):
+                return json.dumps(val)
+            return str(val)
     except Exception:
+        # Ignore "No secrets file found" and similar
         pass
-    return default
+    return os.getenv(name, default)
 
 #############################
 # Configuration & Secrets   #
 #############################
 HEADERS = ["timestamp", "name", "phone", "instagram", "song", "suggestion"]
 
-HOST_PIN         = read_secret("HOST_PIN", "changeme")
-SHEET_KEY        = read_secret("SHEET_KEY", "")
-GOOGLE_CREDS_RAW = read_secret("GOOGLE_CREDENTIALS", "")
+HOST_PIN = get_secret("HOST_PIN", "changeme")
+SHEET_KEY = get_secret("SHEET_KEY", "")
+GOOGLE_CREDS_RAW = get_secret("GOOGLE_CREDENTIALS", "")
 
-# Optional diagnostics panel in sidebar
-try:
-    st.sidebar.expander("Diagnostics (host)").write({
-        "HAS_GOOGLE_CREDENTIALS": _safe_bool_env("GOOGLE_CREDENTIALS"),
-        "HAS_SHEET_KEY": _safe_bool_env("SHEET_KEY"),
-        "HAS_HOST_PIN": _safe_bool_env("HOST_PIN"),
-        "SERVICE_ACCOUNT_EMAIL": _service_account_email(),
-        "DIAGNOSTICS_MODE": DIAGNOSTICS_MODE,
-    })
-except Exception:
-    pass
+# Small sidebar diagnostics (optional)
+st.sidebar.expander("Diagnostics (host)").write({
+    "HAS_GOOGLE_CREDENTIALS": bool(GOOGLE_CREDS_RAW),
+    "HAS_SHEET_KEY": bool(SHEET_KEY),
+    "HAS_HOST_PIN": bool(HOST_PIN and HOST_PIN != "changeme"),
+    "DIAGNOSTICS_MODE": DIAGNOSTICS_MODE,
+})
 
-# ------------------ Google credentials setup -------------------
-creds: service_account.Credentials
+#############################
+# Credentials               #
+#############################
+creds: Optional[service_account.Credentials] = None
+
 if GOOGLE_CREDS_RAW:
     try:
         info = json.loads(GOOGLE_CREDS_RAW)
@@ -81,36 +70,42 @@ if GOOGLE_CREDS_RAW:
             ],
         )
     except Exception:
-        st.error("Invalid GOOGLE_CREDENTIALS secret. Ensure it is valid JSON.")
+        st.error("Invalid GOOGLE_CREDENTIALS JSON. Make sure the secret is the full service account JSON.")
         if not DIAGNOSTICS_MODE:
             st.stop()
 else:
-    if os.path.exists("service_account.json"):
-        creds = service_account.Credentials.from_service_account_file(
-            "service_account.json",
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive",
-            ],
-        )
+    # Optional local dev fallback
+    if Path("service_account.json").exists():
+        try:
+            creds = service_account.Credentials.from_service_account_file(
+                "service_account.json",
+                scopes=[
+                    "https://www.googleapis.com/auth/spreadsheets",
+                    "https://www.googleapis.com/auth/drive",
+                ],
+            )
+        except Exception:
+            st.error("Found service_account.json but could not load it.")
+            if not DIAGNOSTICS_MODE:
+                st.stop()
     else:
-        st.error(
-            "Google credentials not configured. "
-            "Set GOOGLE_CREDENTIALS or provide service_account.json for local dev."
-        )
+        st.error("Google credentials not configured. Set GOOGLE_CREDENTIALS or add service_account.json for local dev.")
         if not DIAGNOSTICS_MODE:
             st.stop()
 
-# Sheets client & open
-client = gspread.authorize(creds)
+#############################
+# Sheets client & open      #
+#############################
+client = gspread.authorize(creds) if creds else None
+
 try:
     if not SHEET_KEY:
         st.error("SHEET_KEY is not set.")
         if not DIAGNOSTICS_MODE:
             st.stop()
-    sheet = client.open_by_key(SHEET_KEY)
+    sheet = client.open_by_key(SHEET_KEY) if client else None
 except Exception:
-    st.error("Failed to open Google Sheet. Check SHEET_KEY and share with the service account.")
+    st.error("Failed to open Google Sheet. Check SHEET_KEY and share the sheet with the service account email.")
     if not DIAGNOSTICS_MODE:
         st.stop()
 
@@ -469,4 +464,5 @@ with st.expander("Host Controls"):
 # Footer + revision stamp so you can verify the new deployment
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
 
