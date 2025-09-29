@@ -1,13 +1,22 @@
 [server]
-# Turn off strict protections that break behind Cloud Run’s proxy
 enableCORS = false
 enableXsrfProtection = false
-
-# Make Streamlit trust Cloud Run’s headers
 useForwardedHeaders = true
+# Allow your exact host AND Cloud Run variants
+allowedOrigins = [
+  "https://los-emos-karaoke-15879119077.us-west2.run.app",
+  "https://*.run.app",
+  "https://*.a.run.app"
+]
+# Keep ws compression off (already in your CMD, adding here is fine too)
+enableWebsocketCompression = false
 
-# Allow your exact Cloud Run URL (must match what you see in the console)
-allowedOrigins = ["https://los-emos-karaoke-15879119077.us-west2.run.app"]
+[browser]
+# Tell Streamlit what host/port/protocol the browser is actually using
+serverAddress = "los-emos-karaoke-15879119077.us-west2.run.app"
+serverPort = 443
+serverProtocol = "https"
 
-# Needed so Streamlit sets a stable _st_token cookie
-cookieSecret = "any-long-random-string"
+# Required so Streamlit will set its auth cookie
+[client]
+cookieSecret = "this-is-a-long-random-string-keep-it"
