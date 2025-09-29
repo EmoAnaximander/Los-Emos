@@ -30,7 +30,7 @@ EXPOSE 8080
 # - Turns off checks that block Cloud Run’s proxy
 # - Disables a websocket option that sometimes causes errors
 CMD bash -lc 'echo "Starting Streamlit on PORT=${PORT}"; \
-  streamlit run karaoke_app.py \
+  streamlit run app_min.py \
     --server.port=$PORT \
     --server.address=0.0.0.0 \
     --server.enableCORS=false \
