@@ -1,0 +1,5 @@
+[server]
+enableCORS = false
+enableXsrfProtection = false
+allowedOrigins = ["https://los-emos-karaoke-15879119077.us-west2.run.app"]
+cookieSecret = "any-long-random-string"
