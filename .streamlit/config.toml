@@ -1,5 +1,9 @@
 [server]
 enableCORS = false
 enableXsrfProtection = false
-allowedOrigins = ["https://los-emos-karaoke-158791190877.us-west2.run.app"]
+# Include your exact URL AND (for safety) the other host we saw in logs
+allowedOrigins = [
+  "https://los-emos-karaoke-15879119077.us-west2.run.app",
+  "https://los-emos-karaoke-158791190877.us-west2.run.app"
+]
 cookieSecret = "any-long-random-string"
