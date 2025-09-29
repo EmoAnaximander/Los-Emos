@@ -191,12 +191,18 @@ def find_row_by_phone(phone: str) -> Tuple[Optional[int], Dict[str, str]]:
 #############################
 # Header (centered logo)    #
 #############################
+
 col_l, col_c, col_r = st.columns([1, 2, 1])
 with col_c:
     try:
-        st.image("logo.png", caption=None)
-    except Exception:
-        pass
+        # Use the absolute path if your Dockerfile copied it to /app/
+        # OR just keep the relative path if you are certain it's in the WORKDIR
+        st.image("logo.png", caption=None) 
+    except FileNotFoundError:
+        st.error("Error: logo.png not found in the container.")
+    except Exception as e:
+        # If it's another crash, log it directly to the UI for debugging
+        st.error(f"Image load failed with an unexpected error: {e}")
 
 st.markdown(
     "<h1 style='text-align:center;margin:0;'>Song Selection</h1>",
@@ -464,5 +470,6 @@ with st.expander("Host Controls"):
 # Footer + revision stamp so you can verify the new deployment
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
 
 
