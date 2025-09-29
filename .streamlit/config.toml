@@ -1,11 +1,13 @@
 [server]
+# Turn off strict protections that break behind Cloud Run’s proxy
 enableCORS = false
 enableXsrfProtection = false
-# respect Cloud Run’s proxy headers (important for the Host/Origin)
+
+# Make Streamlit trust Cloud Run’s headers
 useForwardedHeaders = true
-# allow your exact URL (you can keep the wildcard too if you like)
-allowedOrigins = [
-  "https://los-emos-karaoke-15879119077.us-west2.run.app"
-]
-# any long random string
-cookieSecret = "this-is-a-long-random-string"
+
+# Allow your exact Cloud Run URL (must match what you see in the console)
+allowedOrigins = ["https://los-emos-karaoke-15879119077.us-west2.run.app"]
+
+# Needed so Streamlit sets a stable _st_token cookie
+cookieSecret = "any-long-random-string"
