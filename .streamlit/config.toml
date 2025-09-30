@@ -20,3 +20,10 @@ serverProtocol = "https"
 
 [client]
 cookieSecret = "this-is-a-long-random-string"
+
+[theme]
+base = "dark"                 # force dark mode
+primaryColor = "#ff3366"      # accents (pick any)
+backgroundColor = "#0e0e10"   # page background
+secondaryBackgroundColor = "#18181b"  # cards/sidebar
+textColor = "#e5e7eb"         # light text
