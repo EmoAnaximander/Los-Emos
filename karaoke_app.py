@@ -444,8 +444,9 @@ with st.expander("Host Controls"):
 
         # 🔄 Always-on refresh every 3s
         time.sleep(3)
-        st.experimental_rerun()
+        st.rerun()
 
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
+
 
