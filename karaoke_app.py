@@ -31,7 +31,6 @@ sheet = None
 if GOOGLE_CREDS_RAW:
     try:
         info = json.loads(GOOGLE_CREDS_RAW)
-        st.sidebar.write({"SERVICE_ACCOUNT_EMAIL": info.get("client_email", "(not found)")})
         creds = service_account.Credentials.from_service_account_info(
             info,
             scopes=[
@@ -478,4 +477,5 @@ with st.expander("Host Controls"):
 # Footer + revision stamp
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
 
