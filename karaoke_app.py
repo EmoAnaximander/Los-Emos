@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import time
 from typing import Optional, Tuple, List, Dict
 from datetime import datetime
 
@@ -273,12 +274,8 @@ else:
     st.caption("No songs found yet in the Songs sheet.")
 
 #############################
-# Host Controls (shared across all hosts)
+# Host Controls (shared + always-on refresh)
 #############################
-import json
-import random
-
-# ---- Helpers to build stable keys and to (de)serialize them
 def _row_key(rec: Dict[str, str]) -> tuple:
     return (
         str(rec.get("name", "")).strip().lower(),
@@ -296,7 +293,6 @@ def _keys_from_df(df_keys: pd.DataFrame, keys: List[tuple]) -> List[Dict[str, st
     return [pool[k] for k in keys if k in pool]
 
 def _serialize_keys(keys: List[tuple]) -> str:
-    # store as JSON list of 3-item lists
     return json.dumps([list(k) for k in keys])
 
 def _deserialize_keys(s: str) -> List[tuple]:
@@ -306,25 +302,19 @@ def _deserialize_keys(s: str) -> List[tuple]:
     except Exception:
         return []
 
-# ---- Create/Load the shared HostState sheet
 def ensure_host_state_sheet():
     try:
         return sheet.worksheet("HostState")
     except gspread.WorksheetNotFound:
         ws = sheet.add_worksheet(title="HostState", rows=2, cols=6)
         ws.update("A1:F1", [[
-            "version",          # increases every change to avoid overwrites
-            "now_key",          # JSON list with exactly one key or []
-            "next_keys_json",   # JSON list of up to 3 keys
-            "used_keys_json",   # JSON list of keys that already sang
-            "updated_at",       # timestamp for human sanity
-            "note"              # free text
+            "version", "now_key", "next_keys_json", "used_keys_json", "updated_at", "note"
         ]])
         ws.update("A2:F2", [[ "0", "[]", "[]", "[]", datetime.utcnow().isoformat(), "" ]])
         return ws
 
 def read_state(ws) -> dict:
-    values = ws.get("A2:F2")[0]  # single row
+    values = ws.get("A2:F2")[0]
     state = {
         "version": int(values[0] or "0"),
         "now_key": _deserialize_keys(values[1])[0] if _deserialize_keys(values[1]) else None,
@@ -347,11 +337,6 @@ def bump_version(state: dict):
     state["version"] = int(state.get("version", 0)) + 1
 
 with st.expander("Host Controls"):
-    # Refresh every 3s so multiple hosts stay in sync (adjust if you like)
-    st_autorefresh_key = st.experimental_get_query_params().get("host_auto", ["1"])[0]
-    if st_autorefresh_key == "1":
-        st.autorefresh(interval=3000, key="host_autorefresh")
-
     pin = st.text_input("Enter host PIN", type="password")
     if st.button("Unlock Host Panel"):
         st.session_state["host_unlocked"] = (pin == HOST_PIN)
@@ -371,27 +356,26 @@ with st.expander("Host Controls"):
         now_key = state["now_key"]
         next_keys = list(state["next_keys"])
 
-        # Compute available keys: not used, not now, not already in next
+        # Compute available keys
         all_keys = set(queue_df_k["__key__"])
         unavailable = used_keys.union(set(next_keys))
         if now_key:
             unavailable.add(now_key)
         available_keys = list(all_keys - unavailable)
 
-        # Fill Next 3 up to 3 spots, randomly from what's available
+        # Fill Next 3
         while len(next_keys) < 3 and available_keys:
             choice = random.choice(available_keys)
             next_keys.append(choice)
             available_keys.remove(choice)
 
-        # Records for display
+        # Display records
         next_records = _keys_from_df(queue_df_k, next_keys)
         now_record = None
         if now_key:
             rp = {k: rec for k, rec in zip(queue_df_k["__key__"], queue_df_k.to_dict("records"))}
             now_record = rp.get(now_key)
 
-        # Now Singing
         st.subheader("Now Singing")
         if now_record:
             n = str(now_record.get("name", "")).strip()
@@ -400,21 +384,16 @@ with st.expander("Host Controls"):
         else:
             st.caption("No one is currently singing.")
 
-        # Call Next Singer: promote #1, slide 2→1 & 3→2, refill #3 at random, and save to HostState
         if next_records:
             display_next = next_records[0]
             name_next = str(display_next.get("name", "")).strip()
             song_next = str(display_next.get("song", "")).strip()
 
             if st.button("Call Next Singer"):
-                # previous now becomes used
                 if now_key:
                     used_keys.add(now_key)
-
-                # promote first in next to now
                 now_key = next_keys.pop(0)
 
-                # rebuild pool (include any new signups)
                 df_all = load_signups()
                 queue_df = df_all[df_all["song"].astype(str).str.len() > 0].fillna("")
                 queue_df_k = _df_with_keys(queue_df)
@@ -423,11 +402,9 @@ with st.expander("Host Controls"):
                 unavailable.add(now_key)
                 available_keys = list(all_keys - unavailable)
 
-                # refill #3
                 if len(next_keys) < 3 and available_keys:
                     next_keys.append(random.choice(available_keys))
 
-                # save shared state
                 state["now_key"] = now_key
                 state["next_keys"] = next_keys
                 state["used_keys"] = list(used_keys)
@@ -435,11 +412,9 @@ with st.expander("Host Controls"):
                 write_state(host_ws, state)
 
                 st.success(f"Now calling {name_next} — {song_next}")
-
         else:
             st.info("No one in the queue yet.")
 
-        # Up Next (Next 3)
         if next_records:
             st.subheader("Up Next (Next 3)")
             show = next_records[:3]
@@ -448,102 +423,13 @@ with st.expander("Host Controls"):
         else:
             st.caption("No upcoming singers.")
 
-        # Optional list (read-only)
-        showing = st.session_state.get("show_full_list", False)
-        label = "Hide Full Signup List" if showing else "Show Full Signup List"
-        if st.button(label, key="toggle_full_list"):
-            st.session_state["show_full_list"] = not showing
-            showing = st.session_state["show_full_list"]
-        if showing:
-            q = safe_queue(queue_df)[["name", "song"]].fillna("")
-            if not q.empty:
-                lines = [f"- {i+1}. {r['name']} — {r['song']}" for i, r in q.iterrows()]
-                st.markdown("\n".join(lines))
-            else:
-                st.caption("No signups yet.")
-
-        # Skip a Singer (remove from Next 3, refill randomly, save to HostState)
-        st.subheader("Skip a Singer")
-        if next_records:
-            options = [f"{i+1}: {r['name']} — {r['song']}" for i, r in enumerate(next_records)]
-            skip_choice = st.selectbox("Choose someone to skip (from the 'Next 3')", options=options, index=0)
-            if st.button("Skip Selected"):
-                idx = int(skip_choice.split(":", 1)[0]) - 1
-                if 0 <= idx < len(next_keys):
-                    removed = next_keys.pop(idx)
-                    # refill if possible
-                    df_all = load_signups()
-                    queue_df = df_all[df_all["song"].astype(str).str.len() > 0].fillna("")
-                    queue_df_k = _df_with_keys(queue_df)
-                    all_keys = set(queue_df_k["__key__"])
-                    unavailable = used_keys.union(set(next_keys))
-                    if now_key:
-                        unavailable.add(now_key)
-                    available_keys = list(all_keys - unavailable)
-                    if len(next_keys) < 3 and available_keys:
-                        next_keys.append(random.choice(available_keys))
-
-                    # save shared state
-                    state["next_keys"] = next_keys
-                    bump_version(state)
-                    write_state(host_ws, state)
-                    st.success("Skipped. Filled the open spot at random from the remaining pool.")
-        else:
-            st.caption("No one to skip.")
-
-        # Release a Song (also cleans up from shared state if present)
-        st.subheader("Release a Song")
-        if not queue_df.empty:
-            df_disp = safe_queue(queue_df).fillna("")
-            df_disp["label"] = df_disp.apply(lambda r: f"{r['name']} — {r['song']}", axis=1)
-            release_label = st.selectbox("Select signup to remove", options=[""] + df_disp["label"].tolist(), index=0)
-            confirm_release = st.checkbox("Yes, remove this signup")
-            if release_label and confirm_release and st.button("Remove Selected Signup"):
-                try:
-                    name_to_release, song_to_release = release_label.split(" — ", 1)
-                except ValueError:
-                    name_to_release, song_to_release = release_label, ""
-                exact_row = find_row_by_name_song(name_to_release, song_to_release)
-                if exact_row:
-                    try:
-                        worksheet.delete_rows(exact_row)
-                        rk = _row_key({"name": name_to_release, "phone": "", "song": song_to_release})
-                        # clean from shared state if present
-                        changed = False
-                        if state.get("now_key") == rk:
-                            state["now_key"] = None
-                            changed = True
-                        if rk in state.get("next_keys", []):
-                            state["next_keys"] = [k for k in state["next_keys"] if k != rk]
-                            changed = True
-                        if rk in state.get("used_keys", []):
-                            state["used_keys"] = [k for k in state["used_keys"] if k != rk]
-                            changed = True
-                        if changed:
-                            bump_version(state)
-                            write_state(host_ws, state)
-                        st.success(f"Removed '{song_to_release}' by {name_to_release}.")
-                        st.cache_data.clear()
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Could not delete the row. ({e})")
-                else:
-                    st.error("Could not find that signup anymore.")
-        else:
-            st.caption("No signups yet.")
-
-        # Download CSV (unchanged)
-        csv = safe_queue(queue_df).to_csv(index=False)
-        st.download_button("Download CSV", data=csv, file_name="signups.csv", mime="text/csv")
-
-        # Reset for Next Event (clears shared state too)
+        # Reset for Next Event
         st.subheader("Reset for Next Event")
         if st.checkbox("Yes, clear all signups and keep headers"):
             if st.button("Reset Now"):
                 try:
                     worksheet.clear()
                     worksheet.update("A1:F1", [HEADERS])
-                    # reset HostState
                     write_state(host_ws, {
                         "version": 0,
                         "now_key": None,
@@ -556,14 +442,10 @@ with st.expander("Host Controls"):
                 except Exception as e:
                     st.error(f"Could not reset the sheet. ({e})")
 
-        # Persist updated session state
-        st.session_state["up_next_keys"] = next_keys
-        st.session_state["now_singing_key"] = now_key
-        st.session_state["used_keys"] = list(used_keys)
+        # 🔄 Always-on refresh every 3s
+        time.sleep(3)
+        st.experimental_rerun()
 
-# Footer + revision stamp
+# Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
-st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
-
-
 
