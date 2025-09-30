@@ -1,6 +1,5 @@
 import os
 import json
-from pathlib import Path
 from typing import Optional, Tuple, List, Dict
 from datetime import datetime
 
@@ -12,52 +11,28 @@ from google.oauth2 import service_account
 # --- Page config MUST be first ---
 st.set_page_config(page_title="Song Selection", layout="centered")
 
-# --- Diagnostics mode (optional): set DIAGNOSTICS_MODE=1 in Cloud Run to avoid early st.stop()s ---
-DIAGNOSTICS_MODE = os.getenv("DIAGNOSTICS_MODE", "0") == "1"
-
-#############################
-# Secret access helper      #
-#############################
-def get_secret(name: str, default: str = "") -> str:
-    """
-    Robustly read a secret:
-      1) Streamlit secrets (if available)
-      2) Environment variables
-      3) Fallback default
-    Never raises the Streamlit secrets error if .streamlit/secrets.toml is missing.
-    """
-    try:
-        if hasattr(st, "secrets") and name in st.secrets:
-            val = st.secrets.get(name, default)
-            if isinstance(val, (dict, list)):
-                return json.dumps(val)
-            return str(val)
-    except Exception:
-        # Ignore "No secrets file found" and similar
-        pass
-    return os.getenv(name, default)
-
 #############################
 # Configuration & Secrets   #
 #############################
 HEADERS = ["timestamp", "name", "phone", "instagram", "song", "suggestion"]
 
-HOST_PIN = get_secret("HOST_PIN", "changeme")
-SHEET_KEY = get_secret("SHEET_KEY", "")
-GOOGLE_CREDS_RAW = get_secret("GOOGLE_CREDENTIALS", "")
+HOST_PIN = os.getenv("HOST_PIN", "changeme")
+SHEET_KEY = os.getenv("SHEET_KEY", "")
+GOOGLE_CREDS_RAW = os.getenv("GOOGLE_CREDENTIALS", "")
 
-# Small sidebar diagnostics (optional)
+# Sidebar diagnostics
 st.sidebar.expander("Diagnostics (host)").write({
     "HAS_GOOGLE_CREDENTIALS": bool(GOOGLE_CREDS_RAW),
     "HAS_SHEET_KEY": bool(SHEET_KEY),
     "HAS_HOST_PIN": bool(HOST_PIN and HOST_PIN != "changeme"),
-    "DIAGNOSTICS_MODE": DIAGNOSTICS_MODE,
 })
 
 #############################
-# Credentials               #
+# Credentials & Sheets      #
 #############################
 creds: Optional[service_account.Credentials] = None
+client = None
+sheet = None
 
 if GOOGLE_CREDS_RAW:
     try:
@@ -69,45 +44,23 @@ if GOOGLE_CREDS_RAW:
                 "https://www.googleapis.com/auth/drive",
             ],
         )
-    except Exception:
-        st.error("Invalid GOOGLE_CREDENTIALS JSON. Make sure the secret is the full service account JSON.")
-        if not DIAGNOSTICS_MODE:
-            st.stop()
+        client = gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"Invalid GOOGLE_CREDENTIALS JSON: {e}")
 else:
-    # Optional local dev fallback
-    if Path("service_account.json").exists():
-        try:
-            creds = service_account.Credentials.from_service_account_file(
-                "service_account.json",
-                scopes=[
-                    "https://www.googleapis.com/auth/spreadsheets",
-                    "https://www.googleapis.com/auth/drive",
-                ],
-            )
-        except Exception:
-            st.error("Found service_account.json but could not load it.")
-            if not DIAGNOSTICS_MODE:
-                st.stop()
-    else:
-        st.error("Google credentials not configured. Set GOOGLE_CREDENTIALS or add service_account.json for local dev.")
-        if not DIAGNOSTICS_MODE:
-            st.stop()
+    st.error("GOOGLE_CREDENTIALS secret is not set.")
 
-#############################
-# Sheets client & open      #
-#############################
-client = gspread.authorize(creds) if creds else None
-
-try:
+if client and SHEET_KEY:
+    try:
+        sheet = client.open_by_key(SHEET_KEY)
+    except Exception as e:
+        st.error(f"Failed to open Google Sheet: {e}")
+else:
     if not SHEET_KEY:
-        st.error("SHEET_KEY is not set.")
-        if not DIAGNOSTICS_MODE:
-            st.stop()
-    sheet = client.open_by_key(SHEET_KEY) if client else None
-except Exception:
-    st.error("Failed to open Google Sheet. Check SHEET_KEY and share the sheet with the service account email.")
-    if not DIAGNOSTICS_MODE:
-        st.stop()
+        st.error("SHEET_KEY secret is not set.")
+
+if not sheet:
+    st.stop()
 
 # Ensure worksheets
 try:
@@ -119,7 +72,6 @@ except gspread.WorksheetNotFound:
 try:
     songs_ws = sheet.worksheet("Songs")
 except gspread.WorksheetNotFound:
-    # Create the Songs sheet if missing (no header required)
     songs_ws = sheet.add_worksheet(title="Songs", rows=1000, cols=1)
 
 #############################
@@ -145,7 +97,6 @@ def load_signups() -> pd.DataFrame:
 @st.cache_data(ttl=CACHE_SONGS_TTL, show_spinner=False)
 def load_song_list() -> List[str]:
     vals = songs_ws.col_values(1)
-    # Accept any first row as valid; trim empties and de-dup while preserving order
     cleaned = [v.strip() for v in vals if isinstance(v, str) and v.strip()]
     deduped = list(dict.fromkeys(cleaned))
     return deduped
@@ -189,43 +140,28 @@ def find_row_by_phone(phone: str) -> Tuple[Optional[int], Dict[str, str]]:
     return None, {}
 
 #############################
-# Header (centered logo)    #
+# Header (logo + intro)     #
 #############################
-
 col_l, col_c, col_r = st.columns([1, 2, 1])
 with col_c:
     try:
-        # Use the absolute path if your Dockerfile copied it to /app/
-        # OR just keep the relative path if you are certain it's in the WORKDIR
         st.image("logo.png", caption=None) 
     except FileNotFoundError:
         st.error("Error: logo.png not found in the container.")
     except Exception as e:
-        # If it's another crash, log it directly to the UI for debugging
-        st.error(f"Image load failed with an unexpected error: {e}")
+        st.error(f"Image load failed: {e}")
 
-st.markdown(
-    "<h1 style='text-align:center;margin:0;'>Song Selection</h1>",
-    unsafe_allow_html=True,
-)
-st.markdown(
-    "<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears. We'll call your name when it's your turn to scream.</p>",
-    unsafe_allow_html=True,
-)
-st.markdown(
-    "<p style='text-align:center;margin:6px 0;'><a href='https://instagram.com/losemoskaraoke' target='_blank'>Follow us on Instagram</a></p>",
-    unsafe_allow_html=True,
-)
+st.markdown("<h1 style='text-align:center;margin:0;'>Song Selection</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears.</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;margin:6px 0;'><a href='https://instagram.com/losemoskaraoke' target='_blank'>Follow us on Instagram</a></p>", unsafe_allow_html=True)
 
 st.divider()
 
-# Persistent success banner (survives reruns)
+# Persistent success banner
 if st.session_state.get("signup_success"):
     _msg = st.session_state["signup_success"]
     if isinstance(_msg, dict) and _msg.get("song"):
-        st.success(
-            f"You're in! You've signed up to sing '{_msg['song']}'. We'll call your name when it's your turn."
-        )
+        st.success(f"You're in! You've signed up to sing '{_msg['song']}'.")
         if st.button("Dismiss", key="dismiss_success"):
             st.session_state["signup_success"] = None
             st.rerun()
@@ -242,7 +178,7 @@ available_songs = [s.strip() for s in all_songs if s and s.strip() and s.strip()
 
 with st.form("signup_form", clear_on_submit=True):
     name = st.text_input("Your Name", max_chars=60)
-    phone_raw = st.text_input("Phone (10 digits)", help="We use this only to ensure one signup per person.")
+    phone_raw = st.text_input("Phone (10 digits)")
     digits = "".join(ch for ch in phone_raw if ch.isdigit())
     formatted = (f"{digits[0:3]}-{digits[3:6]}-{digits[6:10]}" if len(digits) >= 10 else phone_raw)
     if phone_raw and 4 <= len(digits) <= 10:
@@ -287,9 +223,9 @@ with st.form("signup_form", clear_on_submit=True):
             except Exception:
                 st.error("Could not save your signup. Please try again.")
 
-# Public: Undo My Signup (right under signup)
+# Undo signup
 with st.expander("Undo My Signup"):
-    undo_phone_raw = st.text_input("Enter the same phone number you signed up with (10 digits)", key="undo_phone")
+    undo_phone_raw = st.text_input("Enter the phone number you signed up with (10 digits)", key="undo_phone")
     u_digits = "".join(ch for ch in undo_phone_raw if ch.isdigit())
     do_undo = st.button("Undo My Signup")
     if do_undo:
@@ -314,10 +250,9 @@ with st.expander("Undo My Signup"):
 
 st.divider()
 
-# Privacy disclaimer
-st.info("We won't share your data or contact you outside this event. Phone numbers ensure everyone only signs up for one song.")
+st.info("We won't share your data. Phone numbers ensure everyone only signs up for one song.")
 
-# Full song list with claimed crossed out
+# Full song list
 st.subheader("All Songs")
 all_list = load_song_list()
 if all_list:
@@ -335,7 +270,7 @@ else:
     st.caption("No songs found yet in the Songs sheet.")
 
 #############################
-# Host Controls (PIN)       #
+# Host Controls             #
 #############################
 with st.expander("Host Controls"):
     pin = st.text_input("Enter host PIN", type="password")
@@ -344,11 +279,9 @@ with st.expander("Host Controls"):
         if not st.session_state["host_unlocked"]:
             st.error("Incorrect PIN.")
     if st.session_state.get("host_unlocked"):
-        # Load queue
         df = load_signups()
         queue_df = safe_queue(df[df["song"].astype(str).str.len() > 0])
 
-        # Now Singing (before Call Next)
         st.subheader("Now Singing")
         if "now_singing" in st.session_state and st.session_state["now_singing"]:
             n, s = st.session_state["now_singing"]
@@ -356,13 +289,12 @@ with st.expander("Host Controls"):
         else:
             st.caption("No one is currently singing.")
 
-        # Call Next Singer (advances through queue; stops at last)
         if not queue_df.empty:
             if "queue_pos" not in st.session_state:
                 st.session_state["queue_pos"] = 0
             qp = st.session_state["queue_pos"]
             if qp >= len(queue_df):
-                st.info("You've reached the end of the queue.")
+                st.info("End of the queue.")
             else:
                 next_row = queue_df.iloc[qp]
                 name_next = str(next_row.get("name", "")).strip()
@@ -372,7 +304,6 @@ with st.expander("Host Controls"):
                     st.session_state["queue_pos"] = qp + 1
                     st.success(f"Now calling {name_next} — {song_next}")
 
-            # Up Next (Next 3)
             qp2 = st.session_state.get("queue_pos", 0)
             if qp2 < len(queue_df):
                 upcoming = queue_df.iloc[qp2:qp2+3][["name", "song"]].fillna("")
@@ -386,7 +317,6 @@ with st.expander("Host Controls"):
         else:
             st.info("No one in the queue yet.")
 
-        # Show Full Signup List (toggle, friendly list)
         showing = st.session_state.get("show_full_list", False)
         label = "Hide Full Signup List" if showing else "Show Full Signup List"
         if st.button(label, key="toggle_full_list"):
@@ -400,7 +330,6 @@ with st.expander("Host Controls"):
             else:
                 st.caption("No signups yet.")
 
-        # Skip a Singer (bump 3 spots down or to end)
         st.subheader("Skip a Singer")
         if not queue_df.empty:
             options = [f"{r.name}: {r['name']} — {r['song']}" for _, r in queue_df.reset_index().iterrows()]
@@ -417,11 +346,10 @@ with st.expander("Host Controls"):
                     df_reset = pd.concat([top, pd.DataFrame([row_to_move]), bottom]).reset_index(drop=True)
                     st.success("Singer bumped 3 spots down the list.")
                 else:
-                    st.success("Fewer than 3 signups; singer moved to end.")
+                    st.success("Singer moved to end.")
         else:
             st.caption("No one to skip.")
 
-        # Release a Song (delete row)
         st.subheader("Release a Song")
         if not df.empty:
             df_disp = safe_queue(df).fillna("")
@@ -441,35 +369,28 @@ with st.expander("Host Controls"):
                         st.cache_data.clear()
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Could not delete the row. Try again. ({e})")
+                        st.error(f"Could not delete the row. ({e})")
                 else:
                     st.error("Could not find that signup anymore.")
         else:
             st.caption("No signups yet.")
 
-        # Download CSV
         csv = safe_queue(df).to_csv(index=False)
         st.download_button("Download CSV", data=csv, file_name="signups.csv", mime="text/csv")
 
-        # Reset for Next Event
         st.subheader("Reset for Next Event")
         if st.checkbox("Yes, clear all signups and keep headers"):
             if st.button("Reset Now"):
                 try:
                     worksheet.clear()
                     worksheet.update("A1:F1", [HEADERS])
-                    # also reset local session pointers
                     st.session_state.pop("queue_pos", None)
                     st.session_state.pop("now_singing", None)
                     st.cache_data.clear()
                     st.success("Sheet reset. Ready for the next event.")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Could not reset the sheet. Try again. ({e})")
+                    st.error(f"Could not reset the sheet. ({e})")
 
-# Footer + revision stamp so you can verify the new deployment
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
-
-
-
