@@ -301,7 +301,7 @@ def _deserialize_keys(s: str) -> List[tuple]:
     except Exception:
         return []
 
-# -- Shared HostState sheet holds: version, now_key, used_keys_json, order_keys_json, updated_at, note
+# HostState sheet columns: version, now_key, used_keys_json, order_keys_json, updated_at, note
 def ensure_host_state_sheet():
     try:
         return sheet.worksheet("HostState")
@@ -363,16 +363,14 @@ with st.expander("Host Controls"):
         now_key = state["now_key"]
         order_keys: List[tuple] = list(state["order_keys"])
 
-        # Remove any keys from order that no longer exist (or got used/are now)
+        # Clean and extend order: drop invalid/used/now; append truly new signups randomly
         order_keys = [k for k in order_keys if (k in all_keys_set and k not in used_set and k != now_key)]
-
-        # Add NEW signups (not used, not current, not already in order) to the END in random order
         new_candidates = list(all_keys_set - used_set - ({now_key} if now_key else set()) - set(order_keys))
         if new_candidates:
             random.shuffle(new_candidates)
             order_keys.extend(new_candidates)
 
-        # Persist any normalization changes
+        # Persist normalization
         if order_keys != state["order_keys"]:
             state["order_keys"] = order_keys
             bump_version(state)
@@ -403,24 +401,23 @@ with st.expander("Host Controls"):
         else:
             st.caption("No upcoming singers.")
 
-        # 1) CALL NEXT SINGER — move slot #1 to NOW SINGING automatically
+        # CALL NEXT SINGER — move slot #1 to NOW SINGING automatically
         if next_slice:
             first = next_slice[0]
             name_next = str(first.get("name", "")).strip()
             song_next = str(first.get("song", "")).strip()
 
             if st.button("Call Next Singer"):
-                # Move previous now to used
-                if now_key:
-                    if now_key not in used_set:
-                        used_set.add(now_key)
-                        used_keys.append(now_key)
+                # previous now becomes used
+                if now_key and now_key not in used_set:
+                    used_set.add(now_key)
+                    used_keys.append(now_key)
 
-                # Pop the first from order to become now
+                # pop first from order to become now
                 if order_keys:
                     now_key = order_keys.pop(0)
 
-                # Save and refresh
+                # save & refresh
                 state["now_key"] = now_key
                 state["used_keys"] = used_keys
                 state["order_keys"] = order_keys
@@ -429,33 +426,60 @@ with st.expander("Host Controls"):
                 st.success(f"Now calling {name_next} — {song_next}")
                 st.rerun()
 
-        # 2) SKIP A SINGER — move them DOWN TWO places (never past the end)
-        st.subheader("Skip a Singer")
-        if next_slice:
-            options = [f"{i+1}: {r['name']} — {r['song']}" for i, r in enumerate(next_slice)]
-            skip_choice = st.selectbox("Choose someone to skip (from the 'Next 3')", options=options, index=0)
+        # UNIFIED SKIP (current or one of Next 3)
+        st.subheader("Skip")
+        skip_options = []
+        skip_keys = []
+
+        # option: current
+        if now_record and now_key:
+            label_cur = f"Current: {now_record.get('name','')} — {now_record.get('song','')}"
+            skip_options.append(label_cur)
+            skip_keys.append(("current", now_key))
+
+        # options: next 3
+        for i, r in enumerate(next_slice):
+            label_n = f"Next {i+1}: {r.get('name','')} — {r.get('song','')}"
+            skip_options.append(label_n)
+            skip_keys.append(("next", _row_key(r)))
+
+        if skip_options:
+            sel = st.selectbox("Choose who to skip", options=skip_options, index=0, key="unified_skip_choice")
             if st.button("Skip Selected"):
-                idx_in_next = int(skip_choice.split(":", 1)[0]) - 1  # 0,1,2 relative to next_slice
-                # Find that key's absolute index in order_keys
-                target_rec = next_slice[idx_in_next]
-                target_key = _row_key(target_rec)
-                if target_key in order_keys:
-                    old_pos = order_keys.index(target_key)
-                    # Compute new position = old_pos + 2 (but not beyond last index)
-                    new_pos = min(old_pos + 2, len(order_keys) - 1)
-                    # Remove and reinsert
-                    order_keys.pop(old_pos)
-                    order_keys.insert(new_pos, target_key)
-                    # Save and refresh
+                choice_type, choice_key = skip_keys[skip_options.index(sel)]
+                order_keys = list(state.get("order_keys", []))
+
+                if choice_type == "current":
+                    # Insert current singer two spots down from the front of the queue
+                    insert_at = min(2, len(order_keys))
+                    order_keys.insert(insert_at, choice_key)
+                    # Clear now
+                    now_key = None
+
+                    # Save
+                    state["now_key"] = now_key
                     state["order_keys"] = order_keys
                     bump_version(state)
                     write_state(host_ws, state)
-                    st.success("Skipped. Moved that singer down two places.")
+                    st.success("Skipped current singer — moved them down two places.")
                     st.rerun()
-        else:
-            st.caption("No one to skip.")
 
-        # 3) SHOW FULL SIGNUP LIST — ONLY remaining (have not performed yet), in order
+                else:  # skipping from Next 3
+                    if choice_key in order_keys:
+                        old_pos = order_keys.index(choice_key)
+                        new_pos = min(old_pos + 2, len(order_keys) - 1)
+                        order_keys.pop(old_pos)
+                        order_keys.insert(new_pos, choice_key)
+
+                        state["order_keys"] = order_keys
+                        bump_version(state)
+                        write_state(host_ws, state)
+                        st.success("Skipped — moved that singer down two places.")
+                        st.rerun()
+        else:
+            st.caption("No one available to skip.")
+
+        # SHOW REMAINING (only those who have not performed), in order
         showing = st.session_state.get("show_full_list", False)
         label = "Hide Remaining Signup List" if showing else "Show Remaining Signup List"
         if st.button(label, key="toggle_full_list"):
@@ -471,7 +495,7 @@ with st.expander("Host Controls"):
             else:
                 st.caption("No remaining signups.")
 
-        # RELEASE A SONG (delete row) — and remove from state if present
+        # RELEASE A SONG (delete row) — remove from state if present
         st.subheader("Release a Song")
         if not queue_df.empty:
             df_disp = safe_queue(queue_df).fillna("")
@@ -490,15 +514,12 @@ with st.expander("Host Controls"):
                         rk = _row_key({"name": name_to_release, "phone": "", "song": song_to_release})
 
                         changed = False
-                        # If they are now singing, clear it
                         if state.get("now_key") == rk:
                             state["now_key"] = None
                             changed = True
-                        # Remove from order list if present
                         if rk in state.get("order_keys", []):
                             state["order_keys"] = [k for k in state["order_keys"] if k != rk]
                             changed = True
-                        # Remove from used list if present (in case of cleanup)
                         if rk in state.get("used_keys", []):
                             state["used_keys"] = [k for k in state["used_keys"] if k != rk]
                             changed = True
@@ -517,11 +538,11 @@ with st.expander("Host Controls"):
         else:
             st.caption("No signups yet.")
 
-        # DOWNLOAD CSV (same as before)
+        # DOWNLOAD CSV
         csv = safe_queue(queue_df).to_csv(index=False)
         st.download_button("Download CSV", data=csv, file_name="signups.csv", mime="text/csv")
 
-        # RESET FOR NEXT EVENT — clears Signups and shared HostState
+        # RESET FOR NEXT EVENT — clears Signups and HostState
         st.subheader("Reset for Next Event")
         if st.checkbox("Yes, clear all signups and keep headers"):
             if st.button("Reset Now"):
