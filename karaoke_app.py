@@ -21,13 +21,6 @@ HOST_PIN = os.getenv("HOST_PIN", "changeme")
 SHEET_KEY = os.getenv("SHEET_KEY", "")
 GOOGLE_CREDS_RAW = os.getenv("GOOGLE_CREDENTIALS", "")
 
-# Sidebar diagnostics
-st.sidebar.expander("Diagnostics (host)").write({
-    "HAS_GOOGLE_CREDENTIALS": bool(GOOGLE_CREDS_RAW),
-    "HAS_SHEET_KEY": bool(SHEET_KEY),
-    "HAS_HOST_PIN": bool(HOST_PIN and HOST_PIN != "changeme"),
-})
-
 #############################
 # Credentials & Sheets      #
 #############################
@@ -485,3 +478,4 @@ with st.expander("Host Controls"):
 # Footer + revision stamp
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
