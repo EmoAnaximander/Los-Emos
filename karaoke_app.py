@@ -32,41 +32,80 @@ DOC_HOST_STATE = "host_state"
 def host_state_doc():
     return db.collection(COL_APP).document(DOC_HOST_STATE)
 
-# ------------ Helpers for host state (Firestore) ------------
-def _tup(x): 
-    return tuple(x) if isinstance(x, list) else x
+# ------------ Host-state key (tuple) <-> Firestore object (map) ------------
+def key_from_record(rec: Dict[str, str]) -> tuple:
+    """Normalize a record into our stable queue key: (name_lower, digits_phone, song)."""
+    return (
+        str(rec.get("name", "")).strip().lower(),
+        "".join(ch for ch in str(rec.get("phone", "")) if ch.isdigit()),
+        str(rec.get("song", "")).strip(),
+    )
 
-def _lst(x):
-    return list(x) if isinstance(x, tuple) else x
+def key_to_obj(key_tup: tuple) -> Optional[dict]:
+    """('name','phone','song') -> {'n':..., 'p':..., 's':...} or None."""
+    if not key_tup:
+        return None
+    n, p, s = (key_tup + ("", "", ""))[:3]
+    return {"n": n, "p": p, "s": s}
 
+def obj_to_key(obj: Optional[dict]) -> Optional[tuple]:
+    """{'n':...,'p':...,'s':...} -> ('name','phone','song') or None."""
+    if not obj or not isinstance(obj, dict):
+        return None
+    return (str(obj.get("n", "")), str(obj.get("p", "")), str(obj.get("s", "")))
+
+def keys_to_objs(keys: List[tuple]) -> List[dict]:
+    return [key_to_obj(k) for k in keys if k]
+
+def objs_to_keys(objs: List[dict]) -> List[tuple]:
+    """Accepts both new (map) and stray old (list) formats for backward-compat."""
+    out = []
+    for o in objs or []:
+        if isinstance(o, list) and len(o) >= 3:
+            out.append((str(o[0]), str(o[1]), str(o[2])))
+        elif isinstance(o, dict):
+            out.append(obj_to_key(o))
+    return [k for k in out if k]
+
+# ------------ Firestore Host State ------------
 def fs_read_state() -> dict:
     doc = host_state_doc().get()
     if not doc.exists:
         state = {
             "version": 0,
-            "now_key": None,     # tuple stored as list or None
-            "used_keys": [],     # list of tuples as lists
-            "order_keys": [],    # list of tuples as lists
+            "now_key": None,          # stored as map or null
+            "used_keys": [],          # array of maps
+            "order_keys": [],         # array of maps
             "updated_at": datetime.utcnow().isoformat(),
         }
         host_state_doc().set(state)
-        return state
+        return {"version": 0, "now_key": None, "used_keys": [], "order_keys": []}
+
     data = doc.to_dict() or {}
-    state = {
+
+    # now_key can be map (new) or list (legacy)
+    raw_now = data.get("now_key")
+    if isinstance(raw_now, list) and len(raw_now) >= 3:
+        now_key = (str(raw_now[0]), str(raw_now[1]), str(raw_now[2]))
+    else:
+        now_key = obj_to_key(raw_now)
+
+    used_keys = objs_to_keys(data.get("used_keys", []))
+    order_keys = objs_to_keys(data.get("order_keys", []))
+
+    return {
         "version": int(data.get("version", 0)),
-        "now_key": _tup(data.get("now_key")) if data.get("now_key") else None,
-        "used_keys": [_tup(k) for k in data.get("used_keys", [])],
-        "order_keys": [_tup(k) for k in data.get("order_keys", [])],
-        "updated_at": data.get("updated_at"),
+        "now_key": now_key,
+        "used_keys": used_keys,
+        "order_keys": order_keys,
     }
-    return state
 
 def fs_write_state(state: dict):
     payload = {
         "version": int(state.get("version", 0)),
-        "now_key": _lst(state.get("now_key")) if state.get("now_key") else None,
-        "used_keys": [_lst(k) for k in state.get("used_keys", [])],
-        "order_keys": [_lst(k) for k in state.get("order_keys", [])],
+        "now_key": key_to_obj(state.get("now_key")) if state.get("now_key") else None,
+        "used_keys": keys_to_objs(state.get("used_keys", [])),
+        "order_keys": keys_to_objs(state.get("order_keys", [])),
         "updated_at": datetime.utcnow().isoformat(),
     }
     host_state_doc().set(payload, merge=True)
@@ -92,13 +131,6 @@ def fs_load_songs() -> List[str]:
     return out
 
 # ------------ Signups (Firestore) ------------
-def _row_key(rec: Dict[str, str]) -> tuple:
-    return (
-        str(rec.get("name", "")).strip().lower(),
-        "".join(ch for ch in str(rec.get("phone", "")) if ch.isdigit()),
-        str(rec.get("song", "")).strip(),
-    )
-
 @st.cache_data(ttl=30, show_spinner=False)
 def fs_signups_df() -> pd.DataFrame:
     """Return all current signups as a DataFrame."""
@@ -261,6 +293,9 @@ else:
     st.caption("No songs found yet.")
 
 # ------------ Host Controls (shared via Firestore) ------------
+def _row_key(rec: Dict[str, str]) -> tuple:
+    return key_from_record(rec)
+
 def _df_with_keys(dfin: pd.DataFrame) -> pd.DataFrame:
     df2 = dfin.copy()
     df2["__key__"] = df2.apply(lambda r: _row_key(r), axis=1)
@@ -373,7 +408,7 @@ with st.expander("Host Controls"):
         for i, r in enumerate(next_slice):
             label_n = f"Next {i+1}: {r.get('name','')} — {r.get('song','')}"
             skip_options.append(label_n)
-            skip_keys.append(("next", _row_key(r)))
+            skip_keys.append(("next", key_from_record(r)))
 
         if skip_options:
             sel = st.selectbox("Choose who to skip", options=skip_options, index=0, key="unified_skip_choice")
@@ -453,7 +488,7 @@ with st.expander("Host Controls"):
                             song_to_release = tail.split(" (", 1)[0]
                         except Exception:
                             name_to_release, song_to_release = "", ""
-                        rk = _row_key({"name": name_to_release, "phone": "", "song": song_to_release})
+                        rk = key_from_record({"name": name_to_release, "phone": "", "song": song_to_release})
                         changed = False
                         if state.get("now_key") == rk:
                             state["now_key"] = None; changed = True
