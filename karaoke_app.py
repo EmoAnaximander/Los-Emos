@@ -1,7 +1,7 @@
 import os
 import json
 import random
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Set
 from datetime import datetime
 
 import streamlit as st
@@ -154,9 +154,9 @@ def fs_load_songs() -> List[str]:
 
 
 # ------------ Signups (Firestore) ------------
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=10, show_spinner=False)
 def fs_signups_df() -> pd.DataFrame:
-    """Return all current signups as a DataFrame."""
+    """Return all current signups as a DataFrame (host view)."""
     docs = list(db.collection(COL_SIGNUPS).stream())
     rows = []
     for d in docs:
@@ -178,6 +178,18 @@ def fs_signups_df() -> pd.DataFrame:
         if col not in df.columns:
             df[col] = ""
     return df[["id"] + HEADERS]
+
+
+@st.cache_data(ttl=5, show_spinner=False, max_entries=8)
+def fs_claimed_songs() -> Set[str]:
+    """Lightweight set of currently claimed song titles for the public view."""
+    q = db.collection(COL_SIGNUPS).select(["song"]).stream()
+    out: Set[str] = set()
+    for d in q:
+        s = str((d.to_dict() or {}).get("song", "")).strip()
+        if s:
+            out.add(s)
+    return out
 
 
 def fs_find_signup_by_phone(phone_digits: str) -> Optional[Dict[str, str]]:
@@ -233,6 +245,19 @@ def fs_delete_signup_by_id(doc_id: str) -> bool:
         return False
 
 
+# ------------ Targeted cache invalidation ------------
+def _invalidate_data_caches():
+    """Only clear the data caches that reflect signups/claimed songs."""
+    try:
+        fs_signups_df.clear()
+    except Exception:
+        pass
+    try:
+        fs_claimed_songs.clear()
+    except Exception:
+        pass
+
+
 # ------------ UI Header ------------
 col_l, col_c, col_r = st.columns([1, 2, 1])
 with col_c:
@@ -276,12 +301,11 @@ st.divider()
 
 
 # ------------ Public Signup Form ------------
-df = fs_signups_df()
-claimed_songs = set(df["song"].dropna().astype(str).tolist())
-
+# Load static lists + lightweight claimed songs for the public view
 all_songs = fs_load_songs()
 if not all_songs:
     st.warning("No songs found in the songs collection.")
+claimed_songs = fs_claimed_songs()
 available_songs = [s for s in all_songs if s and s not in claimed_songs]
 
 with st.form("signup_form", clear_on_submit=True):
@@ -290,6 +314,7 @@ with st.form("signup_form", clear_on_submit=True):
     phone_raw = st.text_input("Phone (10 digits)")
     digits = "".join(ch for ch in phone_raw if ch.isdigit())
     if phone_raw:
+        # Always show sanitized preview
         if len(digits) >= 10:
             st.caption(f"Digits: {digits[0:3]}-{digits[3:6]}-{digits[6:10]}")
         elif len(digits) >= 4:
@@ -300,7 +325,7 @@ with st.form("signup_form", clear_on_submit=True):
 
     suggestion = st.text_input("Song suggestion (optional)")
 
-    # Preserve last selection even if it disappears on rerun
+    # Preserve user's last selection even if it disappears on rerun
     prev_choice = st.session_state.get("song_select", "")
 
     if available_songs:
@@ -353,7 +378,7 @@ with st.form("signup_form", clear_on_submit=True):
             ok = fs_add_signup(name.strip(), digits, instagram.strip(), attempted_song, suggestion.strip())
             if ok:
                 st.session_state["signup_success"] = {"song": attempted_song, "name": name.strip()}
-                st.cache_data.clear()
+                _invalidate_data_caches()  # targeted cache clear
                 st.rerun()
             else:
                 st.error(
@@ -363,6 +388,7 @@ with st.form("signup_form", clear_on_submit=True):
     # Show the “vanished” heads-up only when NOT submitting and not after success.
     if (not submit) and vanished and not st.session_state.get("signup_success"):
         st.warning(f"Looks like '{prev_choice}' was just claimed by another singer. Please pick another.")
+
 
 # Undo signup
 with st.expander("Undo My Signup"):
@@ -407,7 +433,7 @@ with st.expander("Undo My Signup"):
                         bump_version(state_cleanup)
                         fs_write_state(state_cleanup)
 
-                    st.cache_data.clear()
+                    _invalidate_data_caches()  # targeted cache clear
                     st.rerun()
                 else:
                     st.error("Could not remove your signup. Please try again.")
@@ -530,12 +556,12 @@ with st.expander("Host Controls"):
                 st.error("Incorrect PIN.")
 
     if st.session_state.get("host_unlocked"):
-        # Manual refresh
+        # Manual refresh: only invalidate relevant data caches
         if st.button("Refresh host view"):
-            st.cache_data.clear()
+            _invalidate_data_caches()
             st.rerun()
 
-        # Current signups and keys
+        # Current signups and keys (host needs full rows)
         df_all = fs_signups_df()
         queue_df = df_all[df_all["song"].astype(str).str.len() > 0].fillna("")
         queue_df_k = _df_with_keys(queue_df)
@@ -548,7 +574,7 @@ with st.expander("Host Controls"):
         now_key = state.get("now_key") if state else None
         order_keys: List[tuple] = list(state["order_keys"]) if state else []
 
-        # Normalize order: drop missing/used/now; add new signups at end
+        # Normalize order: drop missing/used/now; add new signups at end (random order if many)
         order_keys_normalized = [k for k in order_keys if (k in all_keys_set and k not in used_set and k != now_key)]
         new_candidates = list(all_keys_set - used_set - ({now_key} if now_key else set()) - set(order_keys_normalized))
 
@@ -557,6 +583,7 @@ with st.expander("Host Controls"):
                 random.shuffle(new_candidates)
                 order_keys_normalized.extend(new_candidates)
 
+            # Background normalization write
             state["order_keys"] = order_keys_normalized
             bump_version(state)
             fs_write_state(state)
@@ -604,7 +631,7 @@ with st.expander("Host Controls"):
                 else:
                     st.success("Queue is empty. Cleared 'Now Singing' slot.")
 
-                st.cache_data.clear()
+                # No data cache invalidation needed (host state changed only)
                 st.rerun()
             except Exception as e:
                 st.error(f"Error calling next singer (transaction failed): {e}")
@@ -637,7 +664,7 @@ with st.expander("Host Controls"):
                     else:
                         st.error("Could not find the singer in the current queue to skip.")
 
-                    st.cache_data.clear()
+                    # No data cache invalidation needed (host state changed only)
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error skipping singer (transaction failed): {e}")
@@ -703,7 +730,7 @@ with st.expander("Host Controls"):
                         fs_write_state(state_cleanup)
 
                     st.success("Signup removed.")
-                    st.cache_data.clear()
+                    _invalidate_data_caches()  # targeted cache clear
                     st.rerun()
                 else:
                     st.error("Could not delete the signup. Try again.")
@@ -721,11 +748,13 @@ with st.expander("Host Controls"):
         st.warning("This will permanently delete all signups and host history!")
         if st.checkbox("Yes, clear all signups and host state", key="confirm_reset_checkbox"):
             if st.button("Reset Now", key="final_reset_button"):
+                # delete all signups (batch)
                 batch = db.batch()
                 for d in db.collection(COL_SIGNUPS).stream():
                     batch.delete(d.reference)
                 batch.commit()
 
+                # reset host state
                 fs_write_state({
                     "version": 0,
                     "now_key": None,
@@ -733,8 +762,9 @@ with st.expander("Host Controls"):
                     "order_keys": [],
                 })
 
+                # Targeted cache clears (and resources if desired)
                 try:
-                    st.cache_data.clear()
+                    _invalidate_data_caches()
                 except Exception:
                     pass
                 try:
@@ -748,4 +778,3 @@ with st.expander("Host Controls"):
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
-
