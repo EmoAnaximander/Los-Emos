@@ -304,11 +304,34 @@ with st.form("signup_form", clear_on_submit=True):
     instagram = instagram.strip().lstrip("@").strip().lower() if instagram else ""
 
     suggestion = st.text_input("Song suggestion (optional)")
+
+    # ---- Preserve user's last selection even if it disappears on rerun ----
+    prev_choice = st.session_state.get("song_select", "")
+
     if available_songs:
-        song = st.selectbox("Pick your song", options=[""] + available_songs, index=0)
+        st.selectbox(
+            "Pick your song",
+            options=[""] + available_songs,
+            index=0,
+            key="song_select",
+        )
     else:
-        song = ""
-        st.info("All songs are currently claimed. Check back soon!")
+        st.selectbox(
+            "Pick your song",
+            options=[""],
+            index=0,
+            key="song_select",
+            disabled=True,
+        )
+
+    # What the widget currently has (may be "" if the option vanished)
+    current_choice = st.session_state.get("song_select", "")
+    # Use the previous choice as the user's intended selection if the widget reset
+    attempted_song = current_choice or prev_choice
+
+    # If their previous selection vanished due to someone else claiming it, tell them up-front
+    if prev_choice and (prev_choice not in available_songs) and (current_choice == ""):
+        st.warning(f"Looks like '{prev_choice}' was just claimed by another singer. Please pick another.")
 
     submit = st.form_submit_button("Submit Signup")
     if submit:
@@ -317,27 +340,30 @@ with st.form("signup_form", clear_on_submit=True):
             errs.append("Please enter your name.")
         if len(digits) != 10:
             errs.append("Phone must be exactly 10 digits.")
-        if not song:
+        if not attempted_song:
             errs.append("Please select a song.")
+
+        # Concurrency-aware checks using the user's attempted selection
+        if not errs and (attempted_song in claimed_songs or fs_is_song_claimed(attempted_song)):
+            errs.append(f"Sorry, '{attempted_song}' was just claimed. Pick another.")
+
         if not errs and fs_find_signup_by_phone(digits):
             errs.append("This phone number already signed up.")
-        if not errs and song in claimed_songs:
-            errs.append("Sorry, that song was just claimed. Pick another.")
-        # Fresh re-check right before write to reduce race
-        if not errs and fs_is_song_claimed(song):
-            errs.append("Sorry, that song was just claimed. Pick another.")
 
         if errs:
             for e in errs:
                 st.error(e)
         else:
-            ok = fs_add_signup(name.strip(), digits, instagram.strip(), song, suggestion.strip())
+            ok = fs_add_signup(name.strip(), digits, instagram.strip(), attempted_song, suggestion.strip())
             if ok:
-                st.session_state["signup_success"] = {"song": song, "name": name.strip()}
+                st.session_state["signup_success"] = {"song": attempted_song, "name": name.strip()}
                 st.cache_data.clear()
                 st.rerun()
             else:
-                st.error("Could not save your signup. Please try again.")
+                # If the write failed, it's most likely another race; be explicit
+                st.error(
+                    f"Could not save your signup — '{attempted_song}' may have just been claimed. Please pick another."
+                )
 
 # Undo signup
 with st.expander("Undo My Signup"):
@@ -743,3 +769,4 @@ with st.expander("Host Controls"):
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
