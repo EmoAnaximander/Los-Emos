@@ -256,14 +256,28 @@ st.markdown(
 )
 st.divider()
 
-# Persistent success banner
+# Persistent success banner (signup) — lingers until dismissed
 if st.session_state.get("signup_success"):
     _msg = st.session_state["signup_success"]
     if isinstance(_msg, dict) and _msg.get("song"):
-        st.success(f"You're in! You've signed up to sing '{_msg['song']}'.")
+        who = f" { _msg.get('name','') }" if _msg.get("name") else ""
+        st.success(f"You're in{who}! You've signed up to sing '{_msg['song']}'.")
         if st.button("Dismiss", key="dismiss_success"):
             st.session_state["signup_success"] = None
             st.rerun()
+
+# Persistent undo banner — lingers until dismissed
+if st.session_state.get("undo_success"):
+    _umsg = st.session_state["undo_success"]
+    if isinstance(_umsg, dict) and _umsg.get("song"):
+        name_txt = f" for {_umsg.get('name','')}" if _umsg.get("name") else ""
+        st.success(f"Removed your signup{name_txt}: '{_umsg['song']}'.")
+        if st.button("Dismiss", key="dismiss_undo_success"):
+            st.session_state["undo_success"] = None
+            st.rerun()
+
+st.divider()
+
 
 # ------------ Public Signup Form ------------
 df = fs_signups_df()
@@ -339,6 +353,12 @@ with st.expander("Undo My Signup"):
             rec = fs_find_signup_by_phone(u_digits)
             if rec and rec.get("id"):
                 if fs_delete_signup_by_id(rec["id"]):
+                    # Prepare persistent success message that lingers until dismissed
+                    st.session_state["undo_success"] = {
+                        "song": rec.get("song", ""),
+                        "name": rec.get("name", ""),
+                    }
+
                     # Clean from state (mirror Release cleanup)
                     state_cleanup = fs_read_state()
                     key_to_release = key_from_record(
@@ -349,22 +369,36 @@ with st.expander("Undo My Signup"):
                         state_cleanup["now_key"] = None
                         changed = True
                     if key_to_release in state_cleanup.get("order_keys", []):
-                        state_cleanup["order_keys"] = [k for k in state_cleanup["order_keys"] if k != key_to_release]
+                        state_cleanup["order_keys"] = [
+                            k for k in state_cleanup["order_keys"] if k != key_to_release
+                        ]
                         changed = True
                     if key_to_release in state_cleanup.get("used_keys", []):
-                        state_cleanup["used_keys"] = [k for k in state_cleanup["used_keys"] if k != key_to_release]
+                        state_cleanup["used_keys"] = [
+                            k for k in state_cleanup["used_keys"] if k != key_to_release
+                        ]
                         changed = True
                     if changed:
                         bump_version(state_cleanup)
                         fs_write_state(state_cleanup)
 
-                    st.success("Your signup has been removed.")
                     st.cache_data.clear()
                     st.rerun()
                 else:
                     st.error("Could not remove your signup. Please try again.")
             else:
                 st.error("No signup found for that phone number.")
+
+# Persistent undo banner (lingers until dismissed)
+if st.session_state.get("undo_success"):
+    _umsg = st.session_state["undo_success"]
+    if isinstance(_umsg, dict) and _umsg.get("song"):
+        name_txt = f" for {_umsg.get('name','')}" if _umsg.get("name") else ""
+        st.success(f"Removed your signup{name_txt}: '{_umsg['song']}'.")
+        if st.button("Dismiss", key="dismiss_undo_success"):
+            st.session_state["undo_success"] = None
+            st.rerun()
+
 
 st.divider()
 st.info("We won't share your data. Phone numbers ensure everyone only signs up for one song.")
@@ -719,3 +753,4 @@ with st.expander("Host Controls"):
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
