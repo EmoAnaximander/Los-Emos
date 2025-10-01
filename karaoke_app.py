@@ -128,7 +128,8 @@ def fs_load_songs() -> List[str]:
     for t in titles:
         if t not in seen:
             seen.add(t); out.append(t)
-    return out
+    # sort alphabetically (case-insensitive)        
+    return sorted(out, key=lambda x: x.lower())
 
 # ------------ Signups (Firestore) ------------
 @st.cache_data(ttl=30, show_spinner=False)
@@ -537,4 +538,5 @@ with st.expander("Host Controls"):
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
 
