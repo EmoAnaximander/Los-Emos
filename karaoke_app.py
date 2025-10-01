@@ -6,159 +6,160 @@ from datetime import datetime
 
 import streamlit as st
 import pandas as pd
-import gspread
-from google.oauth2 import service_account
+from google.cloud import firestore
 
 # --- Page config MUST be first ---
 st.set_page_config(page_title="Song Selection", layout="centered")
 
-#############################
-# Configuration & Secrets   #
-#############################
+# ------------ Config / Secrets ------------
 HEADERS = ["timestamp", "name", "phone", "instagram", "song", "suggestion"]
-
 HOST_PIN = os.getenv("HOST_PIN", "changeme")
-SHEET_KEY = os.getenv("SHEET_KEY", "")
-GOOGLE_CREDS_RAW = os.getenv("GOOGLE_CREDENTIALS", "")
+FIRESTORE_PROJECT = os.getenv("FIRESTORE_PROJECT")  # optional; defaults to current project
 
-#############################
-# Credentials & Sheets      #
-#############################
-creds: Optional[service_account.Credentials] = None
-client = None
-sheet = None
+# ------------ Firestore client ------------
+@st.cache_resource
+def fs_client():
+    if FIRESTORE_PROJECT:
+        return firestore.Client(project=FIRESTORE_PROJECT)
+    return firestore.Client()
 
-if GOOGLE_CREDS_RAW:
-    try:
-        info = json.loads(GOOGLE_CREDS_RAW)
-        creds = service_account.Credentials.from_service_account_info(
-            info,
-            scopes=[
-                "https://www.googleapis.com/auth/spreadsheets",
-                "https://www.googleapis.com/auth/drive",
-            ],
-        )
-        client = gspread.authorize(creds)
-    except Exception as e:
-        st.error(f"Invalid GOOGLE_CREDENTIALS JSON: {e}")
-else:
-    st.error("GOOGLE_CREDENTIALS secret is not set.")
+db = fs_client()
+COL_SIGNUPS = "signups"
+COL_SONGS = "songs"
+COL_APP = "karaoke"
+DOC_HOST_STATE = "host_state"
 
-if client and SHEET_KEY:
-    try:
-        sheet = client.open_by_key(SHEET_KEY)
-    except Exception as e:
-        msg = str(e)
-        if "404" in msg or "NOT_FOUND" in msg or "not found" in msg.lower():
-            st.error(
-                "Could not open the Google Sheet (404).\n\n"
-                "✅ Check these:\n"
-                "1) SHEET_KEY is the ID between /d/ and /edit in the Sheet URL.\n"
-                "2) The Sheet is shared with your service account email (as Editor).\n"
-                "3) If it’s a Shared Drive, the service account is added to that Drive.\n"
-            )
-        else:
-            st.error(f"Failed to open Google Sheet: {e}")
-else:
-    if not SHEET_KEY:
-        st.error("SHEET_KEY secret is not set.")
+def host_state_doc():
+    return db.collection(COL_APP).document(DOC_HOST_STATE)
 
-if not sheet:
-    st.stop()
+# ------------ Helpers for host state (Firestore) ------------
+def _tup(x): 
+    return tuple(x) if isinstance(x, list) else x
 
-# Ensure worksheets
-try:
-    worksheet = sheet.worksheet("Signups")
-except gspread.WorksheetNotFound:
-    worksheet = sheet.add_worksheet(title="Signups", rows=1000, cols=10)
-    worksheet.update("A1:F1", [HEADERS])
+def _lst(x):
+    return list(x) if isinstance(x, tuple) else x
 
-try:
-    songs_ws = sheet.worksheet("Songs")
-except gspread.WorksheetNotFound:
-    songs_ws = sheet.add_worksheet(title="Songs", rows=1000, cols=1)
+def fs_read_state() -> dict:
+    doc = host_state_doc().get()
+    if not doc.exists:
+        state = {
+            "version": 0,
+            "now_key": None,     # tuple stored as list or None
+            "used_keys": [],     # list of tuples as lists
+            "order_keys": [],    # list of tuples as lists
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        host_state_doc().set(state)
+        return state
+    data = doc.to_dict() or {}
+    state = {
+        "version": int(data.get("version", 0)),
+        "now_key": _tup(data.get("now_key")) if data.get("now_key") else None,
+        "used_keys": [_tup(k) for k in data.get("used_keys", [])],
+        "order_keys": [_tup(k) for k in data.get("order_keys", [])],
+        "updated_at": data.get("updated_at"),
+    }
+    return state
 
-#############################
-# Cached IO helpers         #
-#############################
-CACHE_SIGNUPS_TTL = 3
-CACHE_SONGS_TTL = 30
+def fs_write_state(state: dict):
+    payload = {
+        "version": int(state.get("version", 0)),
+        "now_key": _lst(state.get("now_key")) if state.get("now_key") else None,
+        "used_keys": [_lst(k) for k in state.get("used_keys", [])],
+        "order_keys": [_lst(k) for k in state.get("order_keys", [])],
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    host_state_doc().set(payload, merge=True)
 
-@st.cache_data(ttl=CACHE_SIGNUPS_TTL, show_spinner=False)
-def load_signups() -> pd.DataFrame:
-    records = worksheet.get_all_records()
-    if records:
-        df = pd.DataFrame(records)
-    else:
-        header = worksheet.row_values(1) or []
-        df = pd.DataFrame(columns=[c.strip().lower() for c in header])
-    df.columns = [c.strip().lower() for c in df.columns]
-    for col in HEADERS:
+def bump_version(state: dict):
+    state["version"] = int(state.get("version", 0)) + 1
+
+# ------------ Songs (Firestore) ------------
+@st.cache_data(ttl=120, show_spinner=False)
+def fs_load_songs() -> List[str]:
+    docs = list(db.collection(COL_SONGS).stream())
+    titles = []
+    for d in docs:
+        data = d.to_dict() or {}
+        t = str(data.get("title", "")).strip()
+        if t:
+            titles.append(t)
+    # de-dup while preserving order
+    seen, out = set(), []
+    for t in titles:
+        if t not in seen:
+            seen.add(t); out.append(t)
+    return out
+
+# ------------ Signups (Firestore) ------------
+def _row_key(rec: Dict[str, str]) -> tuple:
+    return (
+        str(rec.get("name", "")).strip().lower(),
+        "".join(ch for ch in str(rec.get("phone", "")) if ch.isdigit()),
+        str(rec.get("song", "")).strip(),
+    )
+
+@st.cache_data(ttl=30, show_spinner=False)
+def fs_signups_df() -> pd.DataFrame:
+    """Return all current signups as a DataFrame."""
+    docs = list(db.collection(COL_SIGNUPS).stream())
+    rows = []
+    for d in docs:
+        data = d.to_dict() or {}
+        row = {
+            "id": d.id,
+            "timestamp": data.get("timestamp", ""),
+            "name": str(data.get("name", "")),
+            "phone": "".join(ch for ch in str(data.get("phone", "")) if ch.isdigit()),
+            "instagram": str(data.get("instagram", "")),
+            "song": str(data.get("song", "")),
+            "suggestion": str(data.get("suggestion", "")),
+        }
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame(columns=["id"] + HEADERS)
+    df = pd.DataFrame(rows)
+    for col in ["id"] + HEADERS:
         if col not in df.columns:
             df[col] = ""
-    return df
+    return df[["id"] + HEADERS]
 
-@st.cache_data(ttl=CACHE_SONGS_TTL, show_spinner=False)
-def load_song_list() -> List[str]:
-    vals = songs_ws.col_values(1)
-    cleaned = [v.strip() for v in vals if isinstance(v, str) and v.strip()]
-    deduped = list(dict.fromkeys(cleaned))
-    return deduped
-
-def safe_queue(df: pd.DataFrame) -> pd.DataFrame:
-    if "timestamp" in df.columns:
-        try:
-            tmp = df.copy()
-            tmp["_ts"] = pd.to_datetime(tmp["timestamp"], errors="coerce")
-            tmp = tmp.sort_values(["_ts"], kind="stable")
-            return tmp.drop(columns=["_ts"], errors="ignore")
-        except Exception:
-            return df
-    return df
-
-def get_rows_matrix() -> List[List[str]]:
-    return worksheet.get_all_values() or []
-
-def find_row_by_name_song(name: str, song: str) -> Optional[int]:
-    rows = get_rows_matrix()
-    name_l = name.strip().lower()
-    song_s = song.strip()
-    for i, row in enumerate(rows[1:], start=2):
-        if len(row) >= 5:
-            r_name = row[1].strip().lower()
-            r_song = row[4].strip()
-            if r_name == name_l and r_song == song_s:
-                return i
+def fs_find_signup_by_phone(phone_digits: str) -> Optional[Dict[str, str]]:
+    q = db.collection(COL_SIGNUPS).where("phone", "==", phone_digits).limit(1).stream()
+    for d in q:
+        rec = d.to_dict(); rec["id"] = d.id
+        return rec
     return None
 
-def find_row_by_phone(phone: str) -> Tuple[Optional[int], Dict[str, str]]:
-    rows = get_rows_matrix()
-    if not rows:
-        return None, {}
-    header = [h.strip().lower() for h in rows[0]]
-    for i, row in enumerate(rows[1:], start=2):
-        rec = {header[j]: (row[j] if j < len(row) else "") for j in range(len(header))}
-        phone_val = "".join(ch for ch in str(rec.get("phone", "")) if ch.isdigit())
-        if phone_val == phone:
-            return i, rec
-    return None, {}
+def fs_add_signup(name: str, phone_digits: str, instagram: str, song: str, suggestion: str) -> bool:
+    try:
+        db.collection(COL_SIGNUPS).add({
+            "timestamp": datetime.utcnow().isoformat(),
+            "name": name, "phone": phone_digits, "instagram": instagram,
+            "song": song, "suggestion": suggestion
+        })
+        return True
+    except Exception:
+        return False
 
-#############################
-# Header (logo + intro)     #
-#############################
+def fs_delete_signup_by_id(doc_id: str) -> bool:
+    try:
+        db.collection(COL_SIGNUPS).document(doc_id).delete()
+        return True
+    except Exception:
+        return False
+
+# ------------ UI Header ------------
 col_l, col_c, col_r = st.columns([1, 2, 1])
 with col_c:
     try:
         st.image("logo.png", caption=None)
-    except FileNotFoundError:
-        st.error("Error: logo.png not found in the container.")
-    except Exception as e:
-        st.error(f"Image load failed: {e}")
+    except Exception:
+        pass
 
 st.markdown("<h1 style='text-align:center;margin:0;'>Song Selection</h1>", unsafe_allow_html=True)
 st.markdown("<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears.</p>", unsafe_allow_html=True)
 st.markdown("<p style='text-align:center;margin:6px 0;'><a href='https://instagram.com/losemoskaraoke' target='_blank'>Follow us on Instagram</a></p>", unsafe_allow_html=True)
-
 st.divider()
 
 # Persistent success banner
@@ -170,23 +171,21 @@ if st.session_state.get("signup_success"):
             st.session_state["signup_success"] = None
             st.rerun()
 
-#############################
-# Public signup form        #
-#############################
-df = load_signups()
+# ------------ Public Signup Form ------------
+df = fs_signups_df()
 claimed_songs = set(df["song"].dropna().astype(str).tolist())
-all_songs = load_song_list()
+
+all_songs = fs_load_songs()
 if not all_songs:
-    st.warning("No songs found in the 'Songs' worksheet.")
-available_songs = [s.strip() for s in all_songs if s and s.strip() and s.strip() not in claimed_songs]
+    st.warning("No songs found in the songs collection.")
+available_songs = [s for s in all_songs if s and s not in claimed_songs]
 
 with st.form("signup_form", clear_on_submit=True):
     name = st.text_input("Your Name", max_chars=60)
     phone_raw = st.text_input("Phone (10 digits)")
     digits = "".join(ch for ch in phone_raw if ch.isdigit())
-    formatted = (f"{digits[0:3]}-{digits[3:6]}-{digits[6:10]}" if len(digits) >= 10 else phone_raw)
     if phone_raw and 4 <= len(digits) <= 10:
-        st.caption(f"Formatted: {formatted}")
+        st.caption(f"Formatted: {digits[0:3]}-{digits[3:6]}-{digits[6:10]}" if len(digits) >= 10 else phone_raw)
 
     instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
     if instagram.strip().startswith("@"):
@@ -208,7 +207,7 @@ with st.form("signup_form", clear_on_submit=True):
             errs.append("Phone must be exactly 10 digits.")
         if not song:
             errs.append("Please select a song.")
-        if not errs and digits in df["phone"].astype(str).tolist():
+        if not errs and fs_find_signup_by_phone(digits):
             errs.append("This phone number already signed up.")
         if not errs and song in claimed_songs:
             errs.append("Sorry, that song was just claimed. Pick another.")
@@ -217,14 +216,12 @@ with st.form("signup_form", clear_on_submit=True):
             for e in errs:
                 st.error(e)
         else:
-            now = datetime.utcnow().isoformat()
-            row = [now, name.strip(), digits, instagram.strip(), song, suggestion.strip()]
-            try:
-                worksheet.append_row(row, table_range="A1")
+            ok = fs_add_signup(name.strip(), digits, instagram.strip(), song, suggestion.strip())
+            if ok:
                 st.session_state["signup_success"] = {"song": song, "name": name.strip()}
                 st.cache_data.clear()
                 st.rerun()
-            except Exception:
+            else:
                 st.error("Could not save your signup. Please try again.")
 
 # Undo signup
@@ -236,18 +233,13 @@ with st.expander("Undo My Signup"):
         if len(u_digits) != 10:
             st.error("Phone must be exactly 10 digits.")
         else:
-            row_idx, rec = find_row_by_phone(u_digits)
-            if row_idx:
-                exact_row = find_row_by_name_song(rec.get("name", ""), rec.get("song", ""))
-                try:
-                    if exact_row:
-                        worksheet.delete_rows(exact_row)
-                    else:
-                        worksheet.delete_rows(row_idx)
+            rec = fs_find_signup_by_phone(u_digits)
+            if rec and rec.get("id"):
+                if fs_delete_signup_by_id(rec["id"]):
                     st.success("Your signup has been removed.")
                     st.cache_data.clear()
                     st.rerun()
-                except Exception:
+                else:
                     st.error("Could not remove your signup. Please try again.")
             else:
                 st.error("No signup found for that phone number.")
@@ -255,33 +247,20 @@ with st.expander("Undo My Signup"):
 st.divider()
 st.info("We won't share your data. Phone numbers ensure everyone only signs up for one song.")
 
-# Full song list
+# Full song list with claimed struck through
 st.subheader("All Songs")
-all_list = load_song_list()
-if all_list:
+if all_songs:
     lines = []
-    for s in all_list:
-        title = (s or "").strip()
-        if not title:
-            continue
-        if title in claimed_songs:
-            lines.append(f"- ~~{title}~~")
+    for s in all_songs:
+        if s in claimed_songs:
+            lines.append(f"- ~~{s}~~")
         else:
-            lines.append(f"- {title}")
+            lines.append(f"- {s}")
     st.markdown("\n".join(lines))
 else:
-    st.caption("No songs found yet in the Songs sheet.")
+    st.caption("No songs found yet.")
 
-#############################
-# Host Controls (shared across all hosts)
-#############################
-def _row_key(rec: Dict[str, str]) -> tuple:
-    return (
-        str(rec.get("name", "")).strip().lower(),
-        "".join(ch for ch in str(rec.get("phone", "")) if ch.isdigit()),
-        str(rec.get("song", "")).strip(),
-    )
-
+# ------------ Host Controls (shared via Firestore) ------------
 def _df_with_keys(dfin: pd.DataFrame) -> pd.DataFrame:
     df2 = dfin.copy()
     df2["__key__"] = df2.apply(lambda r: _row_key(r), axis=1)
@@ -290,51 +269,6 @@ def _df_with_keys(dfin: pd.DataFrame) -> pd.DataFrame:
 def _keys_from_df(df_keys: pd.DataFrame, keys: List[tuple]) -> List[Dict[str, str]]:
     pool = {k: rec for k, rec in zip(df_keys["__key__"], df_keys.to_dict("records"))}
     return [pool[k] for k in keys if k in pool]
-
-def _serialize_keys(keys: List[tuple]) -> str:
-    return json.dumps([list(k) for k in keys])
-
-def _deserialize_keys(s: str) -> List[tuple]:
-    try:
-        raw = json.loads(s or "[]")
-        return [tuple(x) for x in raw]
-    except Exception:
-        return []
-
-# HostState sheet columns: version, now_key, used_keys_json, order_keys_json, updated_at, note
-def ensure_host_state_sheet():
-    try:
-        return sheet.worksheet("HostState")
-    except gspread.WorksheetNotFound:
-        ws = sheet.add_worksheet(title="HostState", rows=2, cols=6)
-        ws.update("A1:F1", [[
-            "version", "now_key", "used_keys_json", "order_keys_json", "updated_at", "note"
-        ]])
-        ws.update("A2:F2", [[ "0", "[]", "[]", "[]", datetime.utcnow().isoformat(), "" ]])
-        return ws
-
-def read_state(ws) -> dict:
-    values = ws.get("A2:F2")[0]
-    state = {
-        "version": int(values[0] or "0"),
-        "now_key": _deserialize_keys(values[1])[0] if _deserialize_keys(values[1]) else None,
-        "used_keys": _deserialize_keys(values[2]),
-        "order_keys": _deserialize_keys(values[3]),
-    }
-    return state
-
-def write_state(ws, state: dict):
-    ws.update("A2:F2", [[
-        str(int(state.get("version", 0))),
-        _serialize_keys([state["now_key"]] if state.get("now_key") else []),
-        _serialize_keys(state.get("used_keys", [])),
-        _serialize_keys(state.get("order_keys", [])),
-        datetime.utcnow().isoformat(),
-        ""
-    ]])
-
-def bump_version(state: dict):
-    state["version"] = int(state.get("version", 0)) + 1
 
 with st.expander("Host Controls"):
     pin = st.text_input("Enter host PIN", type="password")
@@ -350,33 +284,31 @@ with st.expander("Host Controls"):
             st.rerun()
 
         # Current signups and keys
-        df_all = load_signups()
+        df_all = fs_signups_df()
         queue_df = df_all[df_all["song"].astype(str).str.len() > 0].fillna("")
         queue_df_k = _df_with_keys(queue_df)
         all_keys_set = set(queue_df_k["__key__"])
 
         # Load shared state
-        host_ws = ensure_host_state_sheet()
-        state = read_state(host_ws)
+        state = fs_read_state()
         used_keys = list(state["used_keys"])
         used_set = set(used_keys)
         now_key = state["now_key"]
         order_keys: List[tuple] = list(state["order_keys"])
 
-        # Clean and extend order: drop invalid/used/now; append truly new signups randomly
+        # Normalize order: drop missing/used/now; add new signups at end (random order if many)
         order_keys = [k for k in order_keys if (k in all_keys_set and k not in used_set and k != now_key)]
         new_candidates = list(all_keys_set - used_set - ({now_key} if now_key else set()) - set(order_keys))
         if new_candidates:
             random.shuffle(new_candidates)
             order_keys.extend(new_candidates)
 
-        # Persist normalization
         if order_keys != state["order_keys"]:
             state["order_keys"] = order_keys
             bump_version(state)
-            write_state(host_ws, state)
+            fs_write_state(state)
 
-        # Build records for display
+        # Build records
         order_records = _keys_from_df(queue_df_k, order_keys)
         now_record = None
         if now_key:
@@ -422,16 +354,16 @@ with st.expander("Host Controls"):
                 state["used_keys"] = used_keys
                 state["order_keys"] = order_keys
                 bump_version(state)
-                write_state(host_ws, state)
+                fs_write_state(state)
                 st.success(f"Now calling {name_next} — {song_next}")
                 st.rerun()
 
-        # UNIFIED SKIP (current or one of Next 3)
+        # UNIFIED SKIP (current or one of Next 3) — moves down two places
         st.subheader("Skip")
         skip_options = []
         skip_keys = []
 
-        # option: current
+        # option: current singer
         if now_record and now_key:
             label_cur = f"Current: {now_record.get('name','')} — {now_record.get('song','')}"
             skip_options.append(label_cur)
@@ -456,11 +388,10 @@ with st.expander("Host Controls"):
                     # Clear now
                     now_key = None
 
-                    # Save
                     state["now_key"] = now_key
                     state["order_keys"] = order_keys
                     bump_version(state)
-                    write_state(host_ws, state)
+                    fs_write_state(state)
                     st.success("Skipped current singer — moved them down two places.")
                     st.rerun()
 
@@ -473,7 +404,7 @@ with st.expander("Host Controls"):
 
                         state["order_keys"] = order_keys
                         bump_version(state)
-                        write_state(host_ws, state)
+                        fs_write_state(state)
                         st.success("Skipped — moved that singer down two places.")
                         st.rerun()
         else:
@@ -495,72 +426,80 @@ with st.expander("Host Controls"):
             else:
                 st.caption("No remaining signups.")
 
-        # RELEASE A SONG (delete row) — remove from state if present
+        # RELEASE A SONG (delete signup) — remove from state if present
         st.subheader("Release a Song")
         if not queue_df.empty:
-            df_disp = safe_queue(queue_df).fillna("")
-            df_disp["label"] = df_disp.apply(lambda r: f"{r['name']} — {r['song']}", axis=1)
+            df_disp = queue_df.copy()
+            df_disp["label"] = df_disp.apply(
+                lambda r: f"{r['name']} — {r['song']} (…{str(r['phone'])[-4:]})", axis=1
+            )
+            # map label -> doc_id
+            label_to_id = {}
+            for _, r in df_disp.iterrows():
+                matches = df_all[(df_all["phone"] == r["phone"]) & (df_all["song"] == r["song"])]
+                doc_id = matches.iloc[0]["id"] if not matches.empty else ""
+                label_to_id[r["label"]] = doc_id
+
             release_label = st.selectbox("Select signup to remove", options=[""] + df_disp["label"].tolist(), index=0)
             confirm_release = st.checkbox("Yes, remove this signup")
             if release_label and confirm_release and st.button("Remove Selected Signup"):
-                try:
-                    name_to_release, song_to_release = release_label.split(" — ", 1)
-                except ValueError:
-                    name_to_release, song_to_release = release_label, ""
-                exact_row = find_row_by_name_song(name_to_release, song_to_release)
-                if exact_row:
-                    try:
-                        worksheet.delete_rows(exact_row)
+                doc_id = label_to_id.get(release_label, "")
+                if doc_id:
+                    ok = fs_delete_signup_by_id(doc_id)
+                    if ok:
+                        # also clean from state if present
+                        try:
+                            name_to_release, tail = release_label.split(" — ", 1)
+                            song_to_release = tail.split(" (", 1)[0]
+                        except Exception:
+                            name_to_release, song_to_release = "", ""
                         rk = _row_key({"name": name_to_release, "phone": "", "song": song_to_release})
-
                         changed = False
                         if state.get("now_key") == rk:
-                            state["now_key"] = None
-                            changed = True
+                            state["now_key"] = None; changed = True
                         if rk in state.get("order_keys", []):
-                            state["order_keys"] = [k for k in state["order_keys"] if k != rk]
-                            changed = True
+                            state["order_keys"] = [k for k in state["order_keys"] if k != rk]; changed = True
                         if rk in state.get("used_keys", []):
-                            state["used_keys"] = [k for k in state["used_keys"] if k != rk]
-                            changed = True
-
+                            state["used_keys"] = [k for k in state["used_keys"] if k != rk]; changed = True
                         if changed:
                             bump_version(state)
-                            write_state(host_ws, state)
+                            fs_write_state(state)
 
-                        st.success(f"Removed '{song_to_release}' by {name_to_release}.")
+                        st.success("Signup removed.")
                         st.cache_data.clear()
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"Could not delete the row. ({e})")
+                    else:
+                        st.error("Could not delete the signup. Try again.")
                 else:
                     st.error("Could not find that signup anymore.")
         else:
             st.caption("No signups yet.")
 
         # DOWNLOAD CSV
-        csv = safe_queue(queue_df).to_csv(index=False)
-        st.download_button("Download CSV", data=csv, file_name="signups.csv", mime="text/csv")
+        csv_df = queue_df[["timestamp","name","phone","instagram","song","suggestion"]].copy()
+        st.download_button("Download CSV", data=csv_df.to_csv(index=False), file_name="signups.csv", mime="text/csv")
 
         # RESET FOR NEXT EVENT — clears Signups and HostState
         st.subheader("Reset for Next Event")
-        if st.checkbox("Yes, clear all signups and keep headers"):
+        if st.checkbox("Yes, clear all signups and host state"):
             if st.button("Reset Now"):
-                try:
-                    worksheet.clear()
-                    worksheet.update("A1:F1", [HEADERS])
-                    write_state(host_ws, {
-                        "version": 0,
-                        "now_key": None,
-                        "used_keys": [],
-                        "order_keys": [],
-                    })
-                    st.cache_data.clear()
-                    st.success("Sheet reset. Ready for the next event.")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Could not reset the sheet. ({e})")
+                # delete all signups (batch)
+                batch = db.batch()
+                for d in db.collection(COL_SIGNUPS).stream():
+                    batch.delete(d.reference)
+                batch.commit()
+                # reset host state
+                fs_write_state({
+                    "version": 0,
+                    "now_key": None,
+                    "used_keys": [],
+                    "order_keys": [],
+                })
+                st.cache_data.clear()
+                st.success("Cleared. Ready for the next event.")
+                st.rerun()
 
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
+st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
 
