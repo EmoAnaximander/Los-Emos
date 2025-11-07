@@ -16,6 +16,14 @@ HEADERS = ["timestamp", "name", "phone", "instagram", "song", "suggestion"]
 HOST_PIN = os.getenv("HOST_PIN")  # Fail-closed if not provided
 FIRESTORE_PROJECT = os.getenv("FIRESTORE_PROJECT")  # optional; defaults to current project
 
+# ------------ Helpers ------------
+def normalize_us_phone(raw: str) -> str:
+    """Return a 10-digit US number. Accepts 11-digit NANP with leading '1'."""
+    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits
+
 # ------------ Firestore client ------------
 @st.cache_resource
 def fs_client():
@@ -180,7 +188,7 @@ def fs_signups_df() -> pd.DataFrame:
     return df[["id"] + HEADERS]
 
 
-@st.cache_data(ttl=5, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=2, show_spinner=False, max_entries=8)
 def fs_claimed_songs() -> Set[str]:
     """Lightweight set of currently claimed song titles for the public view."""
     q = db.collection(COL_SIGNUPS).select(["song"]).stream()
@@ -308,16 +316,16 @@ if not all_songs:
 claimed_songs = fs_claimed_songs()
 available_songs = [s for s in all_songs if s and s not in claimed_songs]
 
-with st.form("signup_form", clear_on_submit=True):
+with st.form("signup_form", clear_on_submit=False):
     name = st.text_input("Your Name", max_chars=60)
 
-    phone_raw = st.text_input("Phone (10 digits)")
-    digits = "".join(ch for ch in phone_raw if ch.isdigit())
+    phone_raw = st.text_input("Phone (US, 10 digits)")
+    digits = normalize_us_phone(phone_raw)
     if phone_raw:
         # Always show sanitized preview
         if len(digits) >= 10:
             st.caption(f"Digits: {digits[0:3]}-{digits[3:6]}-{digits[6:10]}")
-        elif len(digits) >= 4:
+        else:
             st.caption(f"Digits so far: {digits}")
 
     instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
@@ -357,7 +365,7 @@ with st.form("signup_form", clear_on_submit=True):
         if not name.strip():
             errs.append("Please enter your name.")
         if len(digits) != 10:
-            errs.append("Phone must be exactly 10 digits.")
+            errs.append("Please enter a valid US phone (10 digits; country code '1' is OK).")
 
         if vanished:
             # User tried to submit a song that vanished; show one clear error.
@@ -395,11 +403,11 @@ with st.expander("Undo My Signup"):
     undo_phone_raw = st.text_input(
         "Enter the phone number you signed up with (10 digits)", key="undo_phone"
     )
-    u_digits = "".join(ch for ch in undo_phone_raw if ch.isdigit())
+    u_digits = normalize_us_phone(undo_phone_raw)
     do_undo = st.button("Undo My Signup")
     if do_undo:
         if len(u_digits) != 10:
-            st.error("Phone must be exactly 10 digits.")
+            st.error("Please enter a valid US phone (10 digits).")
         else:
             rec = fs_find_signup_by_phone(u_digits)
             if rec and rec.get("id"):
@@ -778,3 +786,5 @@ with st.expander("Host Controls"):
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
+
