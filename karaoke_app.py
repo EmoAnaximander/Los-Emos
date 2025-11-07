@@ -557,6 +557,56 @@ def skip_singer_txn(transaction, choice_type, choice_key):
             return None
 
 
+# Transactional function: manually promote someone to "now" without changing the rest of the order
+@firestore.transactional
+def promote_to_now_txn(transaction, choice_key: tuple):
+    """
+    Make `choice_key` the current singer (now_key).
+    If someone is currently 'now', push that person back to the *front* of order_keys.
+    Keep used_keys unchanged and keep the rest of order_keys unchanged.
+    """
+    state = fs_read_state(transaction=transaction)
+    now_key = state.get("now_key")
+    order_keys = list(state.get("order_keys", []))
+    used_keys = list(state.get("used_keys", []))  # unchanged
+
+    # If already current, nothing to do
+    if choice_key == now_key:
+        return "already_now"
+
+    # Remove the chosen key from order, if present
+    order_keys = [k for k in order_keys if k != choice_key]
+
+    # If there was a current singer, put them back to the very front of the queue
+    if now_key:
+        # Ensure no stray duplicate
+        order_keys = [k for k in order_keys if k != now_key]
+        order_keys.insert(0, now_key)
+
+    # Set the new current singer
+    state["now_key"] = choice_key
+    state["order_keys"] = order_keys
+    state["used_keys"] = used_keys
+    bump_version(state)
+    fs_write_state(state, transaction=transaction)
+    return "ok"
+
+
+# Transactional function: shuffle all remaining (not used, not current) singers
+@firestore.transactional
+def shuffle_remaining_txn(transaction):
+    """
+    Shuffle order_keys only. Keep now_key and used_keys as-is.
+    """
+    state = fs_read_state(transaction=transaction)
+    order_keys = list(state.get("order_keys", []))
+    random.shuffle(order_keys)
+    state["order_keys"] = order_keys
+    bump_version(state)
+    fs_write_state(state, transaction=transaction)
+    return len(order_keys)
+
+
 with st.expander("Host Controls"):
     # Host PIN must be configured; fail-closed
     if not HOST_PIN or not HOST_PIN.strip() or HOST_PIN.strip().lower() == "changeme":
@@ -683,6 +733,51 @@ with st.expander("Host Controls"):
                     st.error(f"Error skipping singer (transaction failed): {e}")
         else:
             st.caption("No one available to skip.")
+
+        # --- MANUAL CALL: Promote someone to sing now (without changing the rest) ---
+        st.subheader("Call Someone Now (Manual)")
+        # Build selectable list from remaining (order_records mirrors order_keys)
+        manual_options = []
+        manual_keys = []
+        for r in order_records:
+            ph = str(r.get("phone", ""))
+            last4 = f" (…{ph[-4:]})" if ph else ""
+            manual_options.append(f"{r.get('name','')} — {r.get('song','')}{last4}")
+            manual_keys.append(key_from_record(r))
+
+        if manual_options:
+            sel_manual = st.selectbox(
+                "Choose a singer to call now",
+                options=["— select —"] + manual_options,
+                index=0,
+                key="manual_call_choice",
+            )
+            if sel_manual != "— select —" and st.button("Call Selected Now"):
+                try:
+                    choice_key = manual_keys[manual_options.index(sel_manual)]
+                    transaction = db.transaction()
+                    result = promote_to_now_txn(transaction, choice_key)
+                    if result == "already_now":
+                        st.info("That singer is already marked as Now Singing.")
+                    else:
+                        st.success("Moved selected singer to Now Singing and kept the rest of the order intact.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error calling selected singer (transaction failed): {e}")
+        else:
+            st.caption("No remaining singers to call manually.")
+
+        # --- SHUFFLE REMAINING: Randomize the queue of remaining singers ---
+        st.subheader("Shuffle Remaining")
+        st.caption("Randomize the order of everyone who hasn’t sung yet. Current singer and already-performed are unchanged.")
+        if st.button("Shuffle Remaining Singers"):
+            try:
+                transaction = db.transaction()
+                n = shuffle_remaining_txn(transaction)
+                st.success(f"Shuffled {n} remaining singers.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Error shuffling remaining singers (transaction failed): {e}")
 
         # SHOW REMAINING (only those who have not performed), in order
         showing = st.session_state.get("show_full_list", False)
