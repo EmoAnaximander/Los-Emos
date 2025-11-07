@@ -1,29 +1,14 @@
 [server]
 enableCORS = false
-enableXsrfProtection = false
+enableXsrfProtection = true
 useForwardedHeaders = true
-
-# Allow your exact Cloud Run URL and wildcard variants
-allowedOrigins = [
-  "https://los-emos-karaoke-15879119077.us-west2.run.app",
-  "https://*.run.app",
-  "https://*.a.run.app"
-]
-
 enableWebsocketCompression = false
-cookieSecret = "this-is-a-long-random-string"
-
-[browser]
-serverAddress = "los-emos-karaoke-15879119077.us-west2.run.app"
-serverPort = 443
-serverProtocol = "https"
-
-[client]
-cookieSecret = "this-is-a-long-random-string"
+headless = true
+fileWatcherType = "none"
 
 [theme]
-base = "dark"                 # force dark mode
-primaryColor = "#ff3366"      # accents (pick any)
-backgroundColor = "#0e0e10"   # page background
-secondaryBackgroundColor = "#18181b"  # cards/sidebar
-textColor = "#e5e7eb"         # light text
+base = "dark"
+primaryColor = "#ff3366"
+backgroundColor = "#0e0e10"
+secondaryBackgroundColor = "#18181b"
+textColor = "#e5e7eb"
