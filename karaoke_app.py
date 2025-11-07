@@ -3,6 +3,7 @@ import json
 import random
 from typing import Optional, Tuple, List, Dict, Set
 from datetime import datetime
+from pathlib import Path  # for robust logo path
 
 import streamlit as st
 import pandas as pd
@@ -269,10 +270,12 @@ def _invalidate_data_caches():
 # ------------ UI Header ------------
 col_l, col_c, col_r = st.columns([1, 2, 1])
 with col_c:
-    try:
-        st.image("logo.png", caption=None)
-    except Exception:
-        pass
+    logo_path = Path(__file__).resolve().parent / "logo.png"
+    if logo_path.exists():
+        st.image(str(logo_path))
+    else:
+        st.caption(" ")
+        st.warning(f"Logo not found at {logo_path.name}. Put logo.png next to karaoke_app.py or update the path.")
 
 st.markdown("<h1 style='text-align:center;margin:0;'>Song Selection</h1>", unsafe_allow_html=True)
 st.markdown(
@@ -339,15 +342,17 @@ with st.form("signup_form", clear_on_submit=False):
     if available_songs:
         st.selectbox(
             "Pick your song",
-            options=[""] + available_songs,
-            index=0,
+            options=available_songs,
+            index=None,                      # start unselected, no dummy ""
+            placeholder="— select a song —",
             key="song_select",
         )
     else:
         st.selectbox(
             "Pick your song",
-            options=[""],
-            index=0,
+            options=[],
+            index=None,
+            placeholder="No songs available",
             key="song_select",
             disabled=True,
         )
@@ -356,7 +361,7 @@ with st.form("signup_form", clear_on_submit=False):
     attempted_song = current_choice or prev_choice
 
     # Detect “vanished” selection (someone else claimed it) AFTER rendering widget
-    vanished = bool(prev_choice and (prev_choice not in available_songs) and (current_choice == ""))
+    vanished = bool(prev_choice and (prev_choice not in available_songs) and (current_choice in ("", None)))
 
     submit = st.form_submit_button("Submit Signup")
 
@@ -786,5 +791,3 @@ with st.expander("Host Controls"):
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
-
-
