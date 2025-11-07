@@ -8,7 +8,6 @@ from pathlib import Path  # for robust logo path
 import streamlit as st
 import pandas as pd
 from google.cloud import firestore
-from streamlit.components.v1 import html as _html  # for tooltip suppression
 
 # --- Page config MUST be first ---
 st.set_page_config(page_title="Song Selection", layout="centered")
@@ -25,45 +24,6 @@ def normalize_us_phone(raw: str) -> str:
     if len(digits) == 11 and digits.startswith("1"):
         digits = digits[1:]
     return digits
-
-def suppress_long_label_tooltips():
-    """
-    Remove dropdown tooltips for long labels and let options wrap onto multiple lines.
-    Works for Streamlit's selectbox (react-select) without touching your data.
-    """
-    _html(
-        """
-        <style>
-          /* Let dropdown options wrap instead of truncating with ellipsis */
-          [role="listbox"] [role="option"] {
-            white-space: normal !important;
-            line-height: 1.2 !important;
-          }
-          /* Also wrap the selected value in the control */
-          div[role="combobox"] div[class*="singleValue"] {
-            white-space: normal !important;
-          }
-        </style>
-        <script>
-        (function () {
-          // Strip tooltip titles that show full text on hover/tap
-          function stripTitles() {
-            try {
-              document.querySelectorAll('[role="listbox"] [role="option"][title]').forEach(function(el){ el.removeAttribute('title'); });
-              document.querySelectorAll('div[role="combobox"] [title]').forEach(function(el){ el.removeAttribute('title'); });
-            } catch(e){}
-          }
-          stripTitles();
-          // Re-run occasionally while dropdown may be open
-          var iv = setInterval(stripTitles, 300);
-          setTimeout(function(){ clearInterval(iv); }, 4000);
-          document.addEventListener('click', function(){ setTimeout(stripTitles, 50); }, true);
-          document.addEventListener('touchstart', function(){ setTimeout(stripTitles, 50); }, true);
-        })();
-        </script>
-        """,
-        height=0,
-    )
 
 # ------------ Firestore client ------------
 @st.cache_resource
@@ -319,7 +279,7 @@ with col_c:
 
 st.markdown("<h1 style='text-align:center;margin:0;'>Song Selection</h1>", unsafe_allow_html=True)
 st.markdown(
-    "<p style='text-align:center;margin:0;'>One song per person. Claimed songs are crossed out. We'll call you when it's time to sing.</p>",
+    "<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears.</p>",
     unsafe_allow_html=True,
 )
 st.markdown(
@@ -358,9 +318,6 @@ if not all_songs:
     st.warning("No songs found in the songs collection.")
 claimed_songs = fs_claimed_songs()
 available_songs = [s for s in all_songs if s and s not in claimed_songs]
-
-# Suppress long-label tooltips and enable wrapping before rendering the form
-suppress_long_label_tooltips()
 
 with st.form("signup_form", clear_on_submit=False):
     name = st.text_input("Your Name", max_chars=60)
