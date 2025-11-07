@@ -320,22 +320,7 @@ claimed_songs = fs_claimed_songs()
 available_songs = [s for s in all_songs if s and s not in claimed_songs]
 
 with st.form("signup_form", clear_on_submit=False):
-    name = st.text_input("Your Name", max_chars=60)
-
-    phone_raw = st.text_input("Phone (US, 10 digits)")
-    digits = normalize_us_phone(phone_raw)
-    if phone_raw:
-        # Always show sanitized preview
-        if len(digits) >= 10:
-            st.caption(f"Digits: {digits[0:3]}-{digits[3:6]}-{digits[6:10]}")
-        else:
-            st.caption(f"Digits so far: {digits}")
-
-    instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
-    instagram = instagram.strip().lstrip("@").strip().lower() if instagram else ""
-
-    suggestion = st.text_input("Song suggestion (optional)")
-
+    # --- Pick song FIRST so mobile keyboard isn't up ---
     # Preserve user's last selection even if it disappears on rerun
     prev_choice = st.session_state.get("song_select", "")
 
@@ -362,6 +347,23 @@ with st.form("signup_form", clear_on_submit=False):
 
     # Detect “vanished” selection (someone else claimed it) AFTER rendering widget
     vanished = bool(prev_choice and (prev_choice not in available_songs) and (current_choice in ("", None)))
+
+    # --- Then collect text inputs (keyboard opens AFTER the select interaction) ---
+    name = st.text_input("Your Name", max_chars=60)
+
+    phone_raw = st.text_input("Phone (US, 10 digits)")
+    digits = normalize_us_phone(phone_raw)
+    if phone_raw:
+        # Always show sanitized preview
+        if len(digits) >= 10:
+            st.caption(f"Digits: {digits[0:3]}-{digits[3:6]}-{digits[6:10]}")
+        else:
+            st.caption(f"Digits so far: {digits}")
+
+    instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
+    instagram = instagram.strip().lstrip("@").strip().lower() if instagram else ""
+
+    suggestion = st.text_input("Song suggestion (optional)")
 
     submit = st.form_submit_button("Submit Signup")
 
