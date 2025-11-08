@@ -279,7 +279,7 @@ with col_c:
 
 st.markdown("<h1 style='text-align:center;margin:0;'>Song Selection</h1>", unsafe_allow_html=True)
 st.markdown(
-    "<p style='text-align:center;margin:0;'>One song per person. Crossed out songs are already taken. We'll call you when it's time to sing.</p>",
+    "<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears.</p>",
     unsafe_allow_html=True,
 )
 st.markdown(
