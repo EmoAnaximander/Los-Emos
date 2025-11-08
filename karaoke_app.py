@@ -288,6 +288,32 @@ st.markdown(
 )
 st.divider()
 
+# --- NEW: wrap long selectbox values/options so full titles are visible without a second popup ---
+st.markdown("""
+<style>
+/* Selected value area */
+div[data-baseweb="select"] .css-1dimb5e-singleValue,
+div[data-baseweb="select"] .css-1uccc91-singleValue,
+div[data-baseweb="select"] .css-1wa3eu0-placeholder {
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* Options inside the dropdown menu */
+div[data-baseweb="select"] div[role="listbox"] div[role="option"] {
+  white-space: normal !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+}
+
+/* Slightly taller control for multi-line selections */
+div[data-baseweb="select"] > div:first-child {
+  min-height: 44px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # Persistent success banner (signup) — lingers until dismissed
 if st.session_state.get("signup_success"):
     _msg = st.session_state["signup_success"]
@@ -320,9 +346,9 @@ claimed_songs = fs_claimed_songs()
 available_songs = [s for s in all_songs if s and s not in claimed_songs]
 
 with st.form("signup_form", clear_on_submit=False):
-    name = st.text_input("Your Name", max_chars=60)
+    name = st.text_input("Your Name", max_chars=60, key="name_input")
 
-    phone_raw = st.text_input("Phone (US, 10 digits)")
+    phone_raw = st.text_input("Phone (US, 10 digits)", key="phone_input")
     digits = normalize_us_phone(phone_raw)
     if phone_raw:
         # Always show sanitized preview
@@ -331,10 +357,10 @@ with st.form("signup_form", clear_on_submit=False):
         else:
             st.caption(f"Digits so far: {digits}")
 
-    instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
+    instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle", key="ig_input")
     instagram = instagram.strip().lstrip("@").strip().lower() if instagram else ""
 
-    suggestion = st.text_input("Song suggestion (optional)")
+    suggestion = st.text_input("Song suggestion (optional)", key="suggestion_input")
 
     # Preserve user's last selection even if it disappears on rerun
     prev_choice = st.session_state.get("song_select", "")
@@ -391,6 +417,14 @@ with st.form("signup_form", clear_on_submit=False):
             ok = fs_add_signup(name.strip(), digits, instagram.strip(), attempted_song, suggestion.strip())
             if ok:
                 st.session_state["signup_success"] = {"song": attempted_song, "name": name.strip()}
+
+                # NEW: clear form inputs and selection on success only
+                st.session_state["name_input"] = ""
+                st.session_state["phone_input"] = ""
+                st.session_state["ig_input"] = ""
+                st.session_state["suggestion_input"] = ""
+                st.session_state["song_select"] = None
+
                 _invalidate_data_caches()  # targeted cache clear
                 st.rerun()
             else:
