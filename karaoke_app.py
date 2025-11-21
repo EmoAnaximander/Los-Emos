@@ -279,7 +279,7 @@ with col_c:
 
 st.markdown("<h1 style='text-align:center;margin:0;'>Song Selection</h1>", unsafe_allow_html=True)
 st.markdown(
-    "<p style='text-align:center;margin:0;'>One song per person. Once it's claimed, it disappears.</p>",
+    "<p style='text-align:center;margin:0;'>One song per person. We'll call you when it's your turn to sing.</p>",
     unsafe_allow_html=True,
 )
 st.markdown(
@@ -334,8 +334,6 @@ with st.form("signup_form", clear_on_submit=False):
     instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
     instagram = instagram.strip().lstrip("@").strip().lower() if instagram else ""
 
-    suggestion = st.text_input("Song suggestion (optional)")
-
     # Preserve user's last selection even if it disappears on rerun
     prev_choice = st.session_state.get("song_select", "")
 
@@ -356,6 +354,12 @@ with st.form("signup_form", clear_on_submit=False):
             key="song_select",
             disabled=True,
         )
+
+    # NEW: clearer suggestion box text, after song selection
+    suggestion = st.text_input(
+        "Don't see your favorite song? Suggest it and we might add it in the future!",
+        placeholder="Optional: suggest a song",
+    )
 
     current_choice = st.session_state.get("song_select", "")
     attempted_song = current_choice or prev_choice
