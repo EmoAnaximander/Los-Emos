@@ -1,8 +1,16 @@
+Here’s your full script with the requested changes applied:
+
+* Top text updated to: **"One song per person. We'll call you when it's your turn to sing."**
+* Suggestion field moved **after** the song selection.
+* Suggestion label changed to:
+  **"Don't see your favorite song? Suggest it and we might add it in the future!"**
+
+```python
 import os
 import json
 import random
 from typing import Optional, Tuple, List, Dict, Set
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path  # for robust logo path
 
 import streamlit as st
@@ -17,10 +25,6 @@ HEADERS = ["timestamp", "name", "phone", "instagram", "song", "suggestion"]
 HOST_PIN = os.getenv("HOST_PIN")  # Fail-closed if not provided
 FIRESTORE_PROJECT = os.getenv("FIRESTORE_PROJECT")  # optional; defaults to current project
 
-# How long the host panel stays unlocked on this device after entering the PIN (in minutes)
-HOST_UNLOCK_MINUTES = int(os.getenv("HOST_UNLOCK_MINUTES", "480"))  # default: 8 hours
-
-
 # ------------ Helpers ------------
 def normalize_us_phone(raw: str) -> str:
     """Return a 10-digit US number. Accepts 11-digit NANP with leading '1'."""
@@ -29,14 +33,12 @@ def normalize_us_phone(raw: str) -> str:
         digits = digits[1:]
     return digits
 
-
 # ------------ Firestore client ------------
 @st.cache_resource
 def fs_client():
     if FIRESTORE_PROJECT:
         return firestore.Client(project=FIRESTORE_PROJECT)
     return firestore.Client()
-
 
 db = fs_client()
 COL_SIGNUPS = "signups"
@@ -361,7 +363,7 @@ with st.form("signup_form", clear_on_submit=False):
             disabled=True,
         )
 
-    # Suggestion box after song selection, with clearer copy
+    # NEW: clearer suggestion box text, after song selection
     suggestion = st.text_input(
         "Don't see your favorite song? Suggest it and we might add it in the future!",
         placeholder="Optional: suggest a song",
@@ -618,54 +620,17 @@ def shuffle_remaining_txn(transaction):
 
 
 with st.expander("Host Controls"):
-    now_utc = datetime.utcnow()
-
-    # Determine if we already have a valid host session
-    unlocked_until_str = st.session_state.get("host_unlocked_until")
-    host_unlocked = False
-    if unlocked_until_str:
-        try:
-            unlocked_until = datetime.fromisoformat(unlocked_until_str)
-            if now_utc < unlocked_until:
-                host_unlocked = True
-            else:
-                # Expired
-                st.session_state["host_unlocked_until"] = None
-        except Exception:
-            st.session_state["host_unlocked_until"] = None
-
     # Host PIN must be configured; fail-closed
     if not HOST_PIN or not HOST_PIN.strip() or HOST_PIN.strip().lower() == "changeme":
         st.error("Host PIN is not configured. Set HOST_PIN in the environment to unlock host controls.")
     else:
-        if not host_unlocked:
-            pin = st.text_input("Enter host PIN", type="password")
-            if st.button("Unlock Host Panel"):
-                if pin == HOST_PIN:
-                    host_unlocked = True
-                    st.session_state["host_unlocked"] = True
-                    st.session_state["host_unlocked_until"] = (
-                        now_utc + timedelta(minutes=HOST_UNLOCK_MINUTES)
-                    ).isoformat()
-                    st.success(f"Host panel unlocked on this device for the next {HOST_UNLOCK_MINUTES} minutes.")
-                else:
-                    st.session_state["host_unlocked"] = False
-                    st.session_state["host_unlocked_until"] = None
-                    st.error("Incorrect PIN.")
-        else:
-            st.info("Host panel is unlocked on this device.")
-            if st.button("Lock Host Panel"):
-                st.session_state["host_unlocked"] = False
-                st.session_state["host_unlocked_until"] = None
-                st.rerun()
+        pin = st.text_input("Enter host PIN", type="password")
+        if st.button("Unlock Host Panel"):
+            st.session_state["host_unlocked"] = (pin == HOST_PIN)
+            if not st.session_state["host_unlocked"]:
+                st.error("Incorrect PIN.")
 
-    if host_unlocked:
-        # Refresh the session expiration on each interaction so it stays alive during the show
-        st.session_state["host_unlocked_until"] = (
-            now_utc + timedelta(minutes=HOST_UNLOCK_MINUTES)
-        ).isoformat()
-        st.session_state["host_unlocked"] = True
-
+    if st.session_state.get("host_unlocked"):
         # Manual refresh: only invalidate relevant data caches
         if st.button("Refresh host view"):
             _invalidate_data_caches()
