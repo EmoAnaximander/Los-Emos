@@ -1,11 +1,3 @@
-Here’s your full script with the requested changes applied:
-
-* Top text updated to: **"One song per person. We'll call you when it's your turn to sing."**
-* Suggestion field moved **after** the song selection.
-* Suggestion label changed to:
-  **"Don't see your favorite song? Suggest it and we might add it in the future!"**
-
-```python
 import os
 import json
 import random
@@ -898,3 +890,4 @@ with st.expander("Host Controls"):
 # Footer
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
+
