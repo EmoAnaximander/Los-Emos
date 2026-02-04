@@ -1,9 +1,8 @@
 import os
-import json
 import random
 import re
 import hashlib
-from typing import Optional, Tuple, List, Dict, Set
+from typing import Optional, List, Dict, Set
 from datetime import datetime
 from pathlib import Path  # for robust logo path
 
@@ -30,7 +29,8 @@ def normalize_us_phone(raw: str) -> str:
 
 def song_doc_id(song: str) -> str:
     """
-    Stable, safe doc id for song claims. Avoids slashes/odd chars and prevents collisions.
+    Stable, safe doc id for song claims.
+    Keeps uniqueness consistent, avoids slashes/odd chars, and prevents collisions.
     """
     s = (song or "").strip().lower()
     slug = re.sub(r"[^a-z0-9]+", "-", s).strip("-")[:60]
@@ -51,7 +51,10 @@ COL_SIGNUPS = "signups"
 COL_SONGS = "songs"
 COL_APP = "karaoke"
 DOC_HOST_STATE = "host_state"
-COL_SONG_CLAIMS = "song_claims"  # NEW: atomic song uniqueness
+
+# NEW collections for the updated rules:
+COL_SONG_CLAIMS = "song_claims"   # song can only be claimed once per night
+COL_PERFORMED = "performed"       # history of completed performances
 
 
 def host_state_doc():
@@ -164,6 +167,7 @@ def fs_load_songs() -> List[str]:
         t = str(data.get("title", "")).strip()
         if t:
             titles.append(t)
+    # de-dup while preserving order
     seen, out = set(), []
     for t in titles:
         if t not in seen:
@@ -175,13 +179,13 @@ def fs_load_songs() -> List[str]:
 # ------------ Signups & Claims (Firestore) ------------
 @st.cache_data(ttl=10, show_spinner=False)
 def fs_signups_df() -> pd.DataFrame:
-    """Return all current signups as a DataFrame (host view)."""
+    """Return all current active signups as a DataFrame (host view)."""
     docs = list(db.collection(COL_SIGNUPS).stream())
     rows = []
     for d in docs:
         data = d.to_dict() or {}
         row = {
-            "id": d.id,  # (now typically phone digits)
+            "id": d.id,  # typically phone digits
             "timestamp": data.get("timestamp", ""),
             "name": str(data.get("name", "")),
             "phone": "".join(ch for ch in str(data.get("phone", "")) if ch.isdigit()),
@@ -201,10 +205,7 @@ def fs_signups_df() -> pd.DataFrame:
 
 @st.cache_data(ttl=2, show_spinner=False, max_entries=8)
 def fs_claimed_songs() -> Set[str]:
-    """
-    Lightweight set of currently claimed song titles for the public view.
-    Uses song_claims for atomic uniqueness.
-    """
+    """Set of all songs claimed for the night (from song_claims)."""
     q = db.collection(COL_SONG_CLAIMS).select(["song"]).stream()
     out: Set[str] = set()
     for d in q:
@@ -216,7 +217,7 @@ def fs_claimed_songs() -> Set[str]:
 
 def fs_find_signup_by_phone(phone_digits: str) -> Optional[Dict[str, str]]:
     """
-    Primary path: doc id = phone (new, atomic uniqueness).
+    Active signup lookup. Primary: doc id = phone digits (new rule).
     Fallback: legacy query by field for older random-id signups.
     """
     if not phone_digits:
@@ -228,7 +229,7 @@ def fs_find_signup_by_phone(phone_digits: str) -> Optional[Dict[str, str]]:
         rec["id"] = snap.id
         return rec
 
-    # Legacy fallback
+    # Legacy fallback (safe to keep)
     q = db.collection(COL_SIGNUPS).where("phone", "==", phone_digits).limit(1).stream()
     for d in q:
         rec = d.to_dict() or {}
@@ -250,9 +251,9 @@ def fs_is_song_claimed(song_title: str) -> bool:
 def add_signup_txn(transaction, name: str, phone_digits: str, instagram: str, song: str, suggestion: str) -> bool:
     """
     Atomically:
-      - create signup at doc id = phone
+      - create active signup at doc id = phone
       - create song claim at doc id = stable song key
-    If either exists, Firestore raises (AlreadyExists), causing failure.
+    If either exists, Firestore raises AlreadyExists -> signup fails.
     """
     signups_ref = db.collection(COL_SIGNUPS).document(phone_digits)
     claims_ref = db.collection(COL_SONG_CLAIMS).document(song_doc_id(song))
@@ -280,7 +281,7 @@ def add_signup_txn(transaction, name: str, phone_digits: str, instagram: str, so
 
 
 def fs_add_signup(name: str, phone_digits: str, instagram: str, song: str, suggestion: str) -> bool:
-    """Atomic add (phone unique, song unique)."""
+    """Atomic add: only one active signup per phone, and each song can be claimed once per night."""
     try:
         if not phone_digits or not song:
             return False
@@ -293,23 +294,15 @@ def fs_add_signup(name: str, phone_digits: str, instagram: str, song: str, sugge
 
 def fs_delete_signup_by_id(doc_id: str) -> bool:
     """
-    Delete signup and release corresponding song claim (if present).
-    Works whether doc_id is new phone-id or legacy random-id.
+    Delete ONLY the active signup doc.
+    IMPORTANT: we do NOT delete the song claim because songs can't repeat this night.
     """
     try:
         ref = db.collection(COL_SIGNUPS).document(doc_id)
         snap = ref.get()
         if not snap.exists:
             return False
-
-        data = snap.to_dict() or {}
-        song = str(data.get("song", "")).strip()
-
-        batch = db.batch()
-        batch.delete(ref)
-        if song:
-            batch.delete(db.collection(COL_SONG_CLAIMS).document(song_doc_id(song)))
-        batch.commit()
+        ref.delete()
         return True
     except Exception:
         return False
@@ -340,7 +333,7 @@ with col_c:
 
 st.markdown("<h1 style='text-align:center;margin:0;'>Song Selection</h1>", unsafe_allow_html=True)
 st.markdown(
-    "<p style='text-align:center;margin:0;'>One song per person. We'll call you when it's your turn to sing.</p>",
+    "<p style='text-align:center;margin:0;'>One song at a time per person. Songs can only be chosen once per night.</p>",
     unsafe_allow_html=True,
 )
 st.markdown(
@@ -393,6 +386,7 @@ with st.form("signup_form", clear_on_submit=False):
     instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
     instagram = instagram.strip().lstrip("@").strip().lower() if instagram else ""
 
+    # Preserve user's last selection even if it disappears on rerun
     prev_choice = st.session_state.get("song_select", "")
 
     if available_songs:
@@ -421,6 +415,7 @@ with st.form("signup_form", clear_on_submit=False):
     current_choice = st.session_state.get("song_select", "")
     attempted_song = current_choice or prev_choice
 
+    # Detect “vanished” selection (someone else claimed it) AFTER rendering widget
     vanished = bool(prev_choice and (prev_choice not in available_songs) and (current_choice in ("", None)))
 
     submit = st.form_submit_button("Submit Signup")
@@ -438,10 +433,11 @@ with st.form("signup_form", clear_on_submit=False):
             if not attempted_song:
                 errs.append("Please select a song.")
             elif (attempted_song in claimed_songs) or fs_is_song_claimed(attempted_song):
-                errs.append(f"Sorry, '{attempted_song}' was just claimed. Pick another.")
+                errs.append(f"Sorry, '{attempted_song}' was already claimed tonight. Pick another.")
 
+            # only one active signup at a time per phone
             if not errs and fs_find_signup_by_phone(digits):
-                errs.append("This phone number already signed up.")
+                errs.append("This phone number already has an active signup. Wait until you sing, then sign up again!")
 
         if errs:
             for e in errs:
@@ -454,7 +450,7 @@ with st.form("signup_form", clear_on_submit=False):
                 st.rerun()
             else:
                 st.error(
-                    f"Could not save your signup — '{attempted_song}' may have just been claimed. Please pick another."
+                    f"Could not save your signup — either your phone already has an active signup, or '{attempted_song}' was already claimed tonight."
                 )
 
     if (not submit) and vanished and not st.session_state.get("signup_success"):
@@ -462,9 +458,7 @@ with st.form("signup_form", clear_on_submit=False):
 
 # Undo signup
 with st.expander("Undo My Signup"):
-    undo_phone_raw = st.text_input(
-        "Enter the phone number you signed up with (10 digits)", key="undo_phone"
-    )
+    undo_phone_raw = st.text_input("Enter the phone number you signed up with (10 digits)", key="undo_phone")
     u_digits = normalize_us_phone(undo_phone_raw)
     do_undo = st.button("Undo My Signup")
     if do_undo:
@@ -479,7 +473,7 @@ with st.expander("Undo My Signup"):
                         "name": rec.get("name", ""),
                     }
 
-                    # Clean from state (mirror Release cleanup)
+                    # Clean from host queue state (if present)
                     state_cleanup = fs_read_state()
                     key_to_release = key_from_record(
                         {"name": rec.get("name", ""), "phone": rec.get("phone", ""), "song": rec.get("song", "")}
@@ -489,14 +483,10 @@ with st.expander("Undo My Signup"):
                         state_cleanup["now_key"] = None
                         changed = True
                     if key_to_release in state_cleanup.get("order_keys", []):
-                        state_cleanup["order_keys"] = [
-                            k for k in state_cleanup["order_keys"] if k != key_to_release
-                        ]
+                        state_cleanup["order_keys"] = [k for k in state_cleanup["order_keys"] if k != key_to_release]
                         changed = True
                     if key_to_release in state_cleanup.get("used_keys", []):
-                        state_cleanup["used_keys"] = [
-                            k for k in state_cleanup["used_keys"] if k != key_to_release
-                        ]
+                        state_cleanup["used_keys"] = [k for k in state_cleanup["used_keys"] if k != key_to_release]
                         changed = True
                     if changed:
                         bump_version(state_cleanup)
@@ -507,10 +497,10 @@ with st.expander("Undo My Signup"):
                 else:
                     st.error("Could not remove your signup. Please try again.")
             else:
-                st.error("No signup found for that phone number.")
+                st.error("No active signup found for that phone number.")
 
 st.divider()
-st.info("We won't share your data. Phone numbers ensure everyone only signs up for one song.")
+st.info("We won't share your data. Phone numbers ensure fairness and prevent duplicate active signups.")
 
 # Full song list with claimed struck through
 st.subheader("All Songs")
@@ -524,6 +514,7 @@ if all_songs:
     st.markdown("\n".join(lines))
 else:
     st.caption("No songs found yet.")
+
 
 # ------------ Host Controls (shared via Firestore) ------------
 def _row_key(rec: Dict[str, str]) -> tuple:
@@ -541,9 +532,13 @@ def _keys_from_df(df_keys: pd.DataFrame, keys: List[tuple]) -> List[Dict[str, st
     return [pool[k] for k in keys if k in pool]
 
 
-# NEW: Transactional queue normalization to avoid multi-host clobbering
 @firestore.transactional
 def normalize_queue_txn(transaction, all_keys_set: Set[tuple]):
+    """
+    Transactional normalization to avoid multi-host clobbering:
+      - drop missing/used/now
+      - append any new signups
+    """
     state = fs_read_state(transaction=transaction)
     used_set = set(state.get("used_keys", []))
     now_key = state.get("now_key")
@@ -554,7 +549,6 @@ def normalize_queue_txn(transaction, all_keys_set: Set[tuple]):
 
     changed = bool(new_candidates) or (len(order_keys_normalized) != len(order_keys))
     if changed:
-        # Deterministic "shuffle" to avoid weirdness on transaction retries
         rng = random.Random(int(state.get("version", 0)))
         rng.shuffle(new_candidates)
         order_keys_normalized.extend(new_candidates)
@@ -566,10 +560,16 @@ def normalize_queue_txn(transaction, all_keys_set: Set[tuple]):
     return state
 
 
-# Transactional function for calling the next singer
 @firestore.transactional
-def call_next_singer_txn(transaction, all_keys_set):
-    """Atomically moves the next singer to 'now_key' and moves 'now_key' to 'used_keys'."""
+def call_next_singer_txn(transaction, all_keys_set: Set[tuple]):
+    """
+    Atomically:
+      - complete previous now -> used_keys
+      - delete previous now's ACTIVE signup (so they may sign up again)
+      - preserve song claim (song can only be claimed once per night)
+      - write performed history record
+      - advance queue
+    """
     state = fs_read_state(transaction=transaction)
 
     now_key = state.get("now_key")
@@ -577,11 +577,35 @@ def call_next_singer_txn(transaction, all_keys_set):
     order_keys = list(state.get("order_keys", []))
     used_set = set(used_keys)
 
+    # Normalize queue
     order_keys = [k for k in order_keys if (k in all_keys_set and k not in used_set and k != now_key)]
 
+    # Complete previous "now"
     if now_key and now_key not in used_set:
         used_keys.append(now_key)
 
+        name_lower, phone_digits, song = now_key
+
+        # Delete active signup so singer can sign up again later
+        signup_ref = db.collection(COL_SIGNUPS).document(phone_digits)
+        transaction.delete(signup_ref)
+
+        # IMPORTANT: DO NOT delete song claim — songs can't repeat tonight
+
+        # Preserve history
+        perf_ref = db.collection(COL_PERFORMED).document()
+        transaction.set(
+            perf_ref,
+            {
+                "timestamp": datetime.utcnow().isoformat(),
+                "name_lower": name_lower,
+                "phone": phone_digits,
+                "song": song,
+                "event": "performed",
+            },
+        )
+
+    # Advance to next singer
     new_now_key = order_keys.pop(0) if order_keys else None
 
     state["now_key"] = new_now_key
@@ -593,7 +617,6 @@ def call_next_singer_txn(transaction, all_keys_set):
     return new_now_key
 
 
-# Transactional function for skipping a singer
 @firestore.transactional
 def skip_singer_txn(transaction, choice_type, choice_key):
     """Atomically moves the selected singer down two places in the queue."""
@@ -609,9 +632,8 @@ def skip_singer_txn(transaction, choice_type, choice_key):
 
         insert_at = min(2, len(order_keys))
         order_keys.insert(insert_at, choice_key)
-        new_now_key = None
 
-        state["now_key"] = new_now_key
+        state["now_key"] = None
         state["order_keys"] = order_keys
         bump_version(state)
         fs_write_state(state, transaction=transaction)
@@ -636,13 +658,12 @@ def skip_singer_txn(transaction, choice_type, choice_key):
 def promote_to_now_txn(transaction, choice_key: tuple):
     """
     Make `choice_key` the current singer (now_key).
-    If someone is currently 'now', push that person back to the *front* of order_keys.
-    Keep used_keys unchanged and keep the rest of order_keys unchanged.
+    If someone is currently 'now', push them back to the front of order_keys.
+    used_keys unchanged.
     """
     state = fs_read_state(transaction=transaction)
     now_key = state.get("now_key")
     order_keys = list(state.get("order_keys", []))
-    used_keys = list(state.get("used_keys", []))
 
     if choice_key == now_key:
         return "already_now"
@@ -655,7 +676,6 @@ def promote_to_now_txn(transaction, choice_key: tuple):
 
     state["now_key"] = choice_key
     state["order_keys"] = order_keys
-    state["used_keys"] = used_keys
     bump_version(state)
     fs_write_state(state, transaction=transaction)
     return "ok"
@@ -663,9 +683,7 @@ def promote_to_now_txn(transaction, choice_key: tuple):
 
 @firestore.transactional
 def shuffle_remaining_txn(transaction):
-    """
-    Shuffle order_keys only. Keep now_key and used_keys as-is.
-    """
+    """Shuffle order_keys only. Keep now_key and used_keys as-is."""
     state = fs_read_state(transaction=transaction)
     order_keys = list(state.get("order_keys", []))
     random.shuffle(order_keys)
@@ -695,17 +713,16 @@ with st.expander("Host Controls"):
         queue_df_k = _df_with_keys(queue_df)
         all_keys_set = set(queue_df_k["__key__"])
 
+        # Load shared state
         state = fs_read_state()
         used_keys = list(state["used_keys"]) if state else []
         used_set = set(used_keys)
         now_key = state.get("now_key") if state else None
         order_keys: List[tuple] = list(state["order_keys"]) if state else []
 
-        # Normalize order: drop missing/used/now; add new signups at end
+        # Normalize queue transactionally if needed
         order_keys_normalized = [k for k in order_keys if (k in all_keys_set and k not in used_set and k != now_key)]
         new_candidates = list(all_keys_set - used_set - ({now_key} if now_key else set()) - set(order_keys_normalized))
-
-        # PATCH (Issue #2): do normalization with a transaction to avoid multi-host clobbering
         if new_candidates or len(order_keys_normalized) != len(order_keys):
             try:
                 transaction = db.transaction()
@@ -715,11 +732,10 @@ with st.expander("Host Controls"):
                 now_key = state.get("now_key")
                 order_keys = list(state.get("order_keys", []))
             except Exception:
-                # If normalization txn fails, proceed with local view (read-only)
                 order_keys = order_keys_normalized + new_candidates
 
+        # Build records
         order_records = _keys_from_df(queue_df_k, order_keys)
-
         rp = {k: rec for k, rec in zip(queue_df_k["__key__"], queue_df_k.to_dict("records"))}
         now_record = rp.get(now_key) if now_key else None
 
@@ -739,10 +755,14 @@ with st.expander("Host Controls"):
         else:
             st.caption("No upcoming singers.")
 
-        if next_slice and st.button("Call Next Singer"):
+        # CALL NEXT SINGER (Transactional) — also frees the previous singer to sign up again
+        if st.button("Call Next Singer"):
             try:
                 transaction = db.transaction()
                 new_now_key = call_next_singer_txn(transaction, all_keys_set)
+
+                # This now changes signups (deletes previous now), so clear relevant caches
+                _invalidate_data_caches()
 
                 if new_now_key:
                     rec = rp.get(new_now_key)
@@ -847,7 +867,7 @@ with st.expander("Host Controls"):
             else:
                 st.caption("No remaining signups.")
 
-        st.subheader("Release a Song")
+        st.subheader("Release a Signup (Song stays claimed tonight)")
         if not queue_df.empty:
             id_to_data = {}
             for _, r in queue_df.iterrows():
@@ -866,7 +886,7 @@ with st.expander("Host Controls"):
                 format_func=lambda doc_id: "— select —" if doc_id == "" else id_to_data[doc_id]["label"],
             )
 
-            confirm_release = st.checkbox("Yes, remove this signup")
+            confirm_release = st.checkbox("Yes, remove this signup", key="confirm_release_signup")
             if release_choice and confirm_release and st.button("Remove Selected Signup"):
                 doc_id_to_release = release_choice
                 key_to_release = id_to_data[doc_id_to_release]["key"]
@@ -888,7 +908,7 @@ with st.expander("Host Controls"):
                         bump_version(state_cleanup)
                         fs_write_state(state_cleanup)
 
-                    st.success("Signup removed.")
+                    st.success("Signup removed. (Song remains claimed for tonight.)")
                     _invalidate_data_caches()
                     st.rerun()
                 else:
@@ -896,26 +916,34 @@ with st.expander("Host Controls"):
         else:
             st.caption("No signups yet.")
 
+        # DOWNLOAD CSV (active signups only)
         csv_df = queue_df[["timestamp", "name", "phone", "instagram", "song", "suggestion"]].copy()
         st.download_button(
-            "Download CSV", data=csv_df.to_csv(index=False), file_name="signups.csv", mime="text/csv"
+            "Download Active Signups CSV", data=csv_df.to_csv(index=False), file_name="signups_active.csv", mime="text/csv"
         )
 
+        # RESET FOR NEXT EVENT
         st.subheader("Reset for Next Event")
-        st.warning("This will permanently delete all signups and host history!")
-        if st.checkbox("Yes, clear all signups and host state", key="confirm_reset_checkbox"):
+        st.warning("This will permanently delete all signups, song claims, performed history, and host state!")
+        if st.checkbox("Yes, clear everything for a new event", key="confirm_reset_checkbox"):
             if st.button("Reset Now", key="final_reset_button"):
-                # delete all signups (batch)
+                # delete all signups
                 batch = db.batch()
                 for d in db.collection(COL_SIGNUPS).stream():
                     batch.delete(d.reference)
                 batch.commit()
 
-                # PATCH (Issue #3): delete all song_claims too
+                # delete all song_claims (new night)
                 batch2 = db.batch()
                 for d in db.collection(COL_SONG_CLAIMS).stream():
                     batch2.delete(d.reference)
                 batch2.commit()
+
+                # delete all performed history (new night)
+                batch3 = db.batch()
+                for d in db.collection(COL_PERFORMED).stream():
+                    batch3.delete(d.reference)
+                batch3.commit()
 
                 # reset host state
                 fs_write_state(
@@ -941,4 +969,3 @@ with st.expander("Host Controls"):
 
 st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION','unknown')}")
-```
