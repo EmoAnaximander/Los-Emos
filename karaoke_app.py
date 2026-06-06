@@ -411,6 +411,11 @@ with st.form("signup_form", clear_on_submit=False):
     instagram = st.text_input("Instagram (optional)", placeholder="@yourhandle")
     instagram = instagram.strip().lstrip("@").strip().lower() if instagram else ""
 
+    # Safe widget clearing:
+    # This modifies song_select only before the selectbox widget is instantiated.
+    if st.session_state.pop("clear_song_select_next_run", False):
+        st.session_state["song_select"] = None
+
     prev_choice = st.session_state.get("song_select", "")
 
     if available_songs:
@@ -468,6 +473,7 @@ with st.form("signup_form", clear_on_submit=False):
             ok = fs_add_signup(name.strip(), digits, instagram.strip(), attempted_song, suggestion.strip())
             if ok:
                 st.session_state["signup_success"] = {"song": attempted_song, "name": name.strip()}
+                st.session_state["clear_song_select_next_run"] = True
                 _invalidate_data_caches()
                 st.rerun()
             else:
