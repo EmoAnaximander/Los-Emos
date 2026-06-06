@@ -60,21 +60,6 @@ def key_from_record(rec: Dict[str, str]) -> tuple:
     )
 
 
-def key_matches_signup(key_tup: Optional[tuple], signup_data: Optional[Dict[str, str]], doc_id: str = "") -> bool:
-    if not key_tup or not signup_data:
-        return False
-
-    phone_digits = "".join(ch for ch in str(signup_data.get("phone") or doc_id) if ch.isdigit())
-    signup_key = key_from_record(
-        {
-            "name": signup_data.get("name", ""),
-            "phone": phone_digits,
-            "song": signup_data.get("song", ""),
-        }
-    )
-    return signup_key == key_tup
-
-
 def key_to_obj(key_tup: tuple) -> Optional[dict]:
     if not key_tup:
         return None
@@ -354,18 +339,6 @@ def fs_delete_signup_by_id(doc_id: str, release_song_claim: bool = True) -> bool
         return False
 
 
-def delete_collection_in_batches(collection_name: str, batch_size: int = 450):
-    while True:
-        docs = list(db.collection(collection_name).limit(batch_size).stream())
-        if not docs:
-            break
-
-        batch = db.batch()
-        for d in docs:
-            batch.delete(d.reference)
-        batch.commit()
-
-
 def _invalidate_data_caches():
     for fn in [fs_signups_df, fs_claimed_songs, fs_performed_df]:
         try:
@@ -445,7 +418,7 @@ with st.form("signup_form", clear_on_submit=False):
             "Pick your song",
             options=available_songs,
             index=None,
-            placeholder="- select a song -",
+            placeholder="— select a song —",
             key="song_select",
         )
     else:
@@ -495,12 +468,11 @@ with st.form("signup_form", clear_on_submit=False):
             ok = fs_add_signup(name.strip(), digits, instagram.strip(), attempted_song, suggestion.strip())
             if ok:
                 st.session_state["signup_success"] = {"song": attempted_song, "name": name.strip()}
-                st.session_state["song_select"] = None
                 _invalidate_data_caches()
                 st.rerun()
             else:
                 st.error(
-                    f"Could not save your signup - either your phone already has an active signup, or '{attempted_song}' was already claimed tonight."
+                    f"Could not save your signup — either your phone already has an active signup, or '{attempted_song}' was already claimed tonight."
                 )
 
     if (not submit) and vanished and not st.session_state.get("signup_success"):
@@ -519,24 +491,26 @@ with st.expander("Undo My Signup"):
             rec = fs_find_signup_by_phone(u_digits)
 
             if rec and rec.get("id"):
-                key_to_release = key_from_record(
-                    {
-                        "name": rec.get("name", ""),
-                        "phone": rec.get("phone") or rec.get("id", ""),
-                        "song": rec.get("song", ""),
-                    }
-                )
-                state_cleanup = fs_read_state()
-
-                if state_cleanup.get("now_key") == key_to_release:
-                    st.error("This signup is already marked as Now Singing. Please ask the host to release it.")
-                elif fs_delete_signup_by_id(rec["id"], release_song_claim=True):
+                if fs_delete_signup_by_id(rec["id"], release_song_claim=True):
                     st.session_state["undo_success"] = {
                         "song": rec.get("song", ""),
                         "name": rec.get("name", ""),
                     }
 
+                    state_cleanup = fs_read_state()
+                    key_to_release = key_from_record(
+                        {
+                            "name": rec.get("name", ""),
+                            "phone": rec.get("phone", ""),
+                            "song": rec.get("song", ""),
+                        }
+                    )
+
                     changed = False
+
+                    if state_cleanup.get("now_key") == key_to_release:
+                        state_cleanup["now_key"] = None
+                        changed = True
 
                     if key_to_release in state_cleanup.get("order_keys", []):
                         state_cleanup["order_keys"] = [
@@ -597,12 +571,6 @@ def normalize_queue_txn(transaction, all_keys_set: Set[tuple]):
     now_key = state.get("now_key")
     order_keys = list(state.get("order_keys", []))
 
-    changed = False
-    if now_key and now_key not in all_keys_set:
-        now_key = None
-        state["now_key"] = None
-        changed = True
-
     order_keys_normalized = [
         k for k in order_keys if (k in all_keys_set and k not in used_set and k != now_key)
     ]
@@ -614,7 +582,7 @@ def normalize_queue_txn(transaction, all_keys_set: Set[tuple]):
         - set(order_keys_normalized)
     )
 
-    changed = changed or bool(new_candidates) or (len(order_keys_normalized) != len(order_keys))
+    changed = bool(new_candidates) or (len(order_keys_normalized) != len(order_keys))
 
     if changed:
         rng = random.Random(int(state.get("version", 0)))
@@ -642,33 +610,32 @@ def call_next_singer_txn(transaction, all_keys_set: Set[tuple]):
     ]
 
     if now_key and now_key not in used_set:
+        used_keys.append(now_key)
+
         name_lower, phone_digits, song = now_key
 
         signup_ref = db.collection(COL_SIGNUPS).document(phone_digits)
         signup_snap = signup_ref.get(transaction=transaction)
         signup_data = signup_snap.to_dict() if signup_snap.exists else {}
 
-        if signup_snap.exists and key_matches_signup(now_key, signup_data, doc_id=phone_digits):
-            used_keys.append(now_key)
+        # Delete active signup so the singer can sign up again.
+        transaction.delete(signup_ref)
 
-            # Delete active signup so the singer can sign up again.
-            transaction.delete(signup_ref)
-
-            # Do NOT delete song claim here. Completed songs stay blocked for the night.
-            perf_ref = db.collection(COL_PERFORMED).document()
-            transaction.set(
-                perf_ref,
-                {
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "name": str(signup_data.get("name", "")),
-                    "name_lower": name_lower,
-                    "phone": phone_digits,
-                    "instagram": str(signup_data.get("instagram", "")),
-                    "song": song,
-                    "suggestion": str(signup_data.get("suggestion", "")),
-                    "status": "performed",
-                },
-            )
+        # Do NOT delete song claim here. Completed songs stay blocked for the night.
+        perf_ref = db.collection(COL_PERFORMED).document()
+        transaction.set(
+            perf_ref,
+            {
+                "timestamp": datetime.utcnow().isoformat(),
+                "name": str(signup_data.get("name", "")),
+                "name_lower": name_lower,
+                "phone": phone_digits,
+                "instagram": str(signup_data.get("instagram", "")),
+                "song": song,
+                "suggestion": str(signup_data.get("suggestion", "")),
+                "status": "performed",
+            },
+        )
 
     new_now_key = order_keys.pop(0) if order_keys else None
 
@@ -780,10 +747,6 @@ with st.expander("Host Controls"):
         now_key = state.get("now_key") if state else None
         order_keys = list(state["order_keys"]) if state else []
 
-        state_needs_normalize = False
-        if now_key and now_key not in all_keys_set:
-            state_needs_normalize = True
-
         order_keys_normalized = [
             k for k in order_keys if (k in all_keys_set and k not in used_set and k != now_key)
         ]
@@ -795,7 +758,7 @@ with st.expander("Host Controls"):
             - set(order_keys_normalized)
         )
 
-        if state_needs_normalize or new_candidates or len(order_keys_normalized) != len(order_keys):
+        if new_candidates or len(order_keys_normalized) != len(order_keys):
             try:
                 transaction = db.transaction()
                 state = normalize_queue_txn(transaction, all_keys_set)
@@ -804,7 +767,6 @@ with st.expander("Host Controls"):
                 now_key = state.get("now_key")
                 order_keys = list(state.get("order_keys", []))
             except Exception:
-                now_key = None if state_needs_normalize else now_key
                 order_keys = order_keys_normalized + new_candidates
 
         order_records = _keys_from_df(queue_df_k, order_keys)
@@ -813,7 +775,7 @@ with st.expander("Host Controls"):
 
         st.subheader("Now Singing")
         if now_record:
-            st.markdown(f"**{now_record.get('name', '')}** - *{now_record.get('song', '')}*")
+            st.markdown(f"**{now_record.get('name', '')}** — *{now_record.get('song', '')}*")
         else:
             st.caption("No one is currently singing.")
 
@@ -823,7 +785,7 @@ with st.expander("Host Controls"):
             st.subheader("Up Next (Next 3)")
             st.markdown(
                 "\n".join(
-                    [f"- {i + 1}. {r.get('name', '')} - {r.get('song', '')}" for i, r in enumerate(next_slice)]
+                    [f"- {i + 1}. {r.get('name', '')} — {r.get('song', '')}" for i, r in enumerate(next_slice)]
                 )
             )
         else:
@@ -838,7 +800,7 @@ with st.expander("Host Controls"):
                 if new_now_key:
                     rec = record_pool.get(new_now_key)
                     if rec:
-                        st.success(f"Now calling {rec.get('name', '')} - {rec.get('song', '')}")
+                        st.success(f"Now calling {rec.get('name', '')} — {rec.get('song', '')}")
                     else:
                         st.success("Now calling the next singer.")
                 else:
@@ -853,11 +815,11 @@ with st.expander("Host Controls"):
         skip_keys = []
 
         if now_record and now_key:
-            skip_options.append(f"Current: {now_record.get('name', '')} - {now_record.get('song', '')}")
+            skip_options.append(f"Current: {now_record.get('name', '')} — {now_record.get('song', '')}")
             skip_keys.append(("current", now_key))
 
         for i, r in enumerate(next_slice):
-            skip_options.append(f"Next {i + 1}: {r.get('name', '')} - {r.get('song', '')}")
+            skip_options.append(f"Next {i + 1}: {r.get('name', '')} — {r.get('song', '')}")
             skip_keys.append(("next", key_from_record(r)))
 
         if skip_options:
@@ -870,7 +832,7 @@ with st.expander("Host Controls"):
                     result = skip_singer_txn(transaction, choice_type, choice_key)
 
                     if result:
-                        st.success("Skipped - moved that singer down two places.")
+                        st.success("Skipped — moved that singer down two places.")
                     else:
                         st.error("Could not find the singer in the current queue to skip.")
 
@@ -886,19 +848,19 @@ with st.expander("Host Controls"):
 
         for r in order_records:
             ph = str(r.get("phone", ""))
-            last4 = f" (...{ph[-4:]})" if ph else ""
-            manual_options.append(f"{r.get('name', '')} - {r.get('song', '')}{last4}")
+            last4 = f" (…{ph[-4:]})" if ph else ""
+            manual_options.append(f"{r.get('name', '')} — {r.get('song', '')}{last4}")
             manual_keys.append(key_from_record(r))
 
         if manual_options:
             sel_manual = st.selectbox(
                 "Choose a singer to call now",
-                options=["- select -"] + manual_options,
+                options=["— select —"] + manual_options,
                 index=0,
                 key="manual_call_choice",
             )
 
-            if sel_manual != "- select -" and st.button("Call Selected Now"):
+            if sel_manual != "— select —" and st.button("Call Selected Now"):
                 try:
                     choice_key = manual_keys[manual_options.index(sel_manual)]
                     transaction = db.transaction()
@@ -916,7 +878,7 @@ with st.expander("Host Controls"):
             st.caption("No remaining singers to call manually.")
 
         st.subheader("Shuffle Remaining")
-        st.caption("Randomize the order of everyone who hasn't sung yet. Current singer and already-performed are unchanged.")
+        st.caption("Randomize the order of everyone who hasn’t sung yet. Current singer and already-performed are unchanged.")
 
         if st.button("Shuffle Remaining Singers"):
             try:
@@ -940,7 +902,7 @@ with st.expander("Host Controls"):
                 st.subheader("Remaining (in order)")
                 st.markdown(
                     "\n".join(
-                        [f"- {i + 1}. {r.get('name', '')} - {r.get('song', '')}" for i, r in enumerate(remaining)]
+                        [f"- {i + 1}. {r.get('name', '')} — {r.get('song', '')}" for i, r in enumerate(remaining)]
                     )
                 )
             else:
@@ -954,7 +916,7 @@ with st.expander("Host Controls"):
 
             for _, r in queue_df.iterrows():
                 doc_id = r["id"]
-                display_label = f"{r['name']} - {r['song']} (...{str(r['phone'])[-4:]})"
+                display_label = f"{r['name']} — {r['song']} (…{str(r['phone'])[-4:]})"
                 id_to_data[doc_id] = {
                     "label": display_label,
                     "key": key_from_record({"name": r["name"], "phone": r["phone"], "song": r["song"]}),
@@ -966,7 +928,7 @@ with st.expander("Host Controls"):
                 "Select signup to remove",
                 options=options,
                 index=0,
-                format_func=lambda doc_id: "- select -" if doc_id == "" else id_to_data[doc_id]["label"],
+                format_func=lambda doc_id: "— select —" if doc_id == "" else id_to_data[doc_id]["label"],
             )
 
             confirm_release = st.checkbox("Yes, remove this signup and release the song", key="confirm_release_signup")
@@ -1039,7 +1001,10 @@ with st.expander("Host Controls"):
         if st.checkbox("Yes, clear everything for a new event", key="confirm_reset_checkbox"):
             if st.button("Reset Now", key="final_reset_button"):
                 for collection_name in [COL_SIGNUPS, COL_SONG_CLAIMS, COL_PERFORMED]:
-                    delete_collection_in_batches(collection_name)
+                    batch = db.batch()
+                    for d in db.collection(collection_name).stream():
+                        batch.delete(d.reference)
+                    batch.commit()
 
                 fs_write_state(
                     {
@@ -1055,5 +1020,5 @@ with st.expander("Host Controls"):
                 st.success("Cleared. Ready for the next event.")
                 st.rerun()
 
-st.caption("Los Emos Karaoke - built with Streamlit.")
+st.caption("Los Emos Karaoke — built with Streamlit.")
 st.caption(f"Build revision: {os.getenv('K_REVISION', 'unknown')}")
